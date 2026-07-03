@@ -12,12 +12,13 @@ import { api } from '../api.js';
 import { fmtDate, timeAgo } from '../format.js';
 import { TypeBadge, StatusBadge, OverdueFlag } from '../components/Badges.jsx';
 import TypeDetailFields from '../components/TypeDetailFields.jsx';
+import OrderSection from '../components/OrderSection.jsx';
 
 const STATUSES = ['lead', 'active', 'dormant', 'closed'];
 const TIERS = ['A', 'B', 'C'];
 
 // Human labels for timeline entry kinds.
-const KIND_LABELS = { note: 'Note', visit: 'Visit', call: 'Call', status_change: 'Status' };
+const KIND_LABELS = { note: 'Note', visit: 'Visit', call: 'Call', status_change: 'Status', order: 'Order' };
 
 export default function ContactDetail({ id }) {
   const [contact, setContact] = useState(null);
@@ -60,6 +61,11 @@ export default function ContactDetail({ id }) {
         <Facts contact={contact} />
         <EditPanel contact={contact} onSaved={load} />
       </div>
+
+      {/* Phase 6: the contact's orders + new-order form. onChanged re-fetches
+          the contact because placing an order also moves the timeline and
+          the lifetime order value. */}
+      <OrderSection contact={contact} onChanged={load} />
 
       <h2>Timeline</h2>
       <LogActivityForm contactId={id} onLogged={load} />

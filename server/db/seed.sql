@@ -24,6 +24,9 @@
 
 -- Wipe in dependency order so the seed is safe to re-run.
 -- (TRUNCATE ... CASCADE would also work; explicit order is easier to read.)
+DELETE FROM order_items;
+DELETE FROM orders;
+DELETE FROM products;
 DELETE FROM activities;
 DELETE FROM hcp_details;
 DELETE FROM pharmacist_details;
@@ -241,3 +244,100 @@ INSERT INTO activities (contact_id, kind, body, created_at) VALUES
   -- Pooja Reddy (C, closed): the losing-the-account story
   ('cccccccc-0000-4000-8000-000000000014', 'visit', 'Final negotiation on oncology line pricing.', now() - interval '95 days'),
   ('cccccccc-0000-4000-8000-000000000014', 'status_change', 'Status changed from active to closed — hospital signed exclusive with competitor.', now() - interval '30 days');
+
+-- ============================================================================
+-- Phase 6 — products & orders
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- Products ('dddddddd-…' UUIDs). 10 active + 1 discontinued: the inactive one
+-- exists to prove the order endpoint refuses it and the form doesn't offer it.
+-- ----------------------------------------------------------------------------
+INSERT INTO products (id, name, sku, form, unit_price, active) VALUES
+  ('dddddddd-0000-4000-8000-000000000001', 'CardioSafe 10',    'CS-010', '10mg tablet, strip of 15',    185.00, true),
+  ('dddddddd-0000-4000-8000-000000000002', 'CardioSafe 25',    'CS-025', '25mg tablet, strip of 15',    240.00, true),
+  ('dddddddd-0000-4000-8000-000000000003', 'GlucoBal 500',     'GB-500', '500mg SR tablet, strip of 10', 92.50, true),
+  ('dddddddd-0000-4000-8000-000000000004', 'ThyroNorm 25',     'TN-025', '25mcg tablet, bottle of 120', 158.00, true),
+  ('dddddddd-0000-4000-8000-000000000005', 'OsteoFlex Forte',  'OF-FRT', '1500mg tablet, strip of 10',  210.00, true),
+  ('dddddddd-0000-4000-8000-000000000006', 'PediCof Junior',   'PC-JNR', '100ml syrup',                  74.00, true),
+  ('dddddddd-0000-4000-8000-000000000007', 'DermaTret 0.025%', 'DT-025', '20g cream',                   129.00, true),
+  ('dddddddd-0000-4000-8000-000000000008', 'AmoxiCure 500',    'AC-500', '500mg capsule, strip of 10',   88.00, true),
+  ('dddddddd-0000-4000-8000-000000000009', 'IVexin 1g',        'IV-1G0', '1g injection vial',           342.00, true),
+  ('dddddddd-0000-4000-8000-000000000010', 'NeuroVit B12',     'NV-B12', '1500mcg tablet, strip of 10',  66.50, true),
+  ('dddddddd-0000-4000-8000-000000000011', 'CardioSafe 5',     'CS-005', '5mg tablet, strip of 15',     150.00, false); -- discontinued
+
+-- ----------------------------------------------------------------------------
+-- Orders ('eeeeeeee-…' UUIDs) + line items + their timeline activities.
+--
+-- HAND-COMPUTED TOTALS: in the API the total is computed by the database
+-- from the line items; in this hand-written seed the arithmetic is done in
+-- the comments — if you edit a line item, update total_amount to match.
+-- Orders are threaded into the EXISTING contact stories (e.g. Suresh
+-- Patil's visit note already said "reordered 200 strips" — order 1 IS that
+-- order), and each order also gets kind='order' activity rows, which is
+-- what the POST/PATCH endpoints do live. 'order' activities don't disturb
+-- the Phase-3 overdue numbers (only 'visit' rows feed the planner).
+-- ----------------------------------------------------------------------------
+
+-- Order 1 — Suresh Patil, DELIVERED. 200 × CardioSafe 10 @185 = 37,000.00
+INSERT INTO orders (id, contact_id, order_date, status, delivered_at, total_amount) VALUES
+  ('eeeeeeee-0000-4000-8000-000000000001', 'cccccccc-0000-4000-8000-000000000007',
+   now() - interval '17 days', 'delivered', now() - interval '15 days', 37000.00);
+INSERT INTO order_items (order_id, product_id, quantity, unit_price_at_order) VALUES
+  ('eeeeeeee-0000-4000-8000-000000000001', 'dddddddd-0000-4000-8000-000000000001', 200, 185.00);
+
+-- Order 2 — Suresh Patil, PENDING (his "festival-season order" visit, 3d ago).
+-- 60×92.50 + 40×66.50 + 24×74.00 = 5,550 + 2,660 + 1,776 = 9,986.00
+INSERT INTO orders (id, contact_id, order_date, status, delivered_at, total_amount) VALUES
+  ('eeeeeeee-0000-4000-8000-000000000002', 'cccccccc-0000-4000-8000-000000000007',
+   now() - interval '3 days', 'pending', NULL, 9986.00);
+INSERT INTO order_items (order_id, product_id, quantity, unit_price_at_order) VALUES
+  ('eeeeeeee-0000-4000-8000-000000000002', 'dddddddd-0000-4000-8000-000000000003', 60, 92.50),
+  ('eeeeeeee-0000-4000-8000-000000000002', 'dddddddd-0000-4000-8000-000000000010', 40, 66.50),
+  ('eeeeeeee-0000-4000-8000-000000000002', 'dddddddd-0000-4000-8000-000000000006', 24, 74.00);
+
+-- Order 3 — Meena Joshi, PENDING and aging (placed at her last visit, 44d ago
+-- — pairs with her overdue story). 30×210 + 20×129 = 6,300 + 2,580 = 8,880.00
+INSERT INTO orders (id, contact_id, order_date, status, delivered_at, total_amount) VALUES
+  ('eeeeeeee-0000-4000-8000-000000000003', 'cccccccc-0000-4000-8000-000000000008',
+   now() - interval '44 days', 'pending', NULL, 8880.00);
+INSERT INTO order_items (order_id, product_id, quantity, unit_price_at_order) VALUES
+  ('eeeeeeee-0000-4000-8000-000000000003', 'dddddddd-0000-4000-8000-000000000005', 30, 210.00),
+  ('eeeeeeee-0000-4000-8000-000000000003', 'dddddddd-0000-4000-8000-000000000007', 20, 129.00);
+
+-- Order 4 — Ramesh Iyer (hospital procurement), PENDING bulk order following
+-- his "quote sent" note. 50×342 + 150×88 = 17,100 + 13,200 = 30,300.00
+INSERT INTO orders (id, contact_id, order_date, status, delivered_at, total_amount) VALUES
+  ('eeeeeeee-0000-4000-8000-000000000004', 'cccccccc-0000-4000-8000-000000000011',
+   now() - interval '12 days', 'pending', NULL, 30300.00);
+INSERT INTO order_items (order_id, product_id, quantity, unit_price_at_order) VALUES
+  ('eeeeeeee-0000-4000-8000-000000000004', 'dddddddd-0000-4000-8000-000000000009',  50, 342.00),
+  ('eeeeeeee-0000-4000-8000-000000000004', 'dddddddd-0000-4000-8000-000000000008', 150,  88.00);
+
+-- Order 5 — Anita Deshpande, DELIVERED (the "emergency PO for the antibiotics
+-- shortfall" her call mentioned). 30 × IVexin 1g @342 = 10,260.00
+INSERT INTO orders (id, contact_id, order_date, status, delivered_at, total_amount) VALUES
+  ('eeeeeeee-0000-4000-8000-000000000005', 'cccccccc-0000-4000-8000-000000000012',
+   now() - interval '6 days', 'delivered', now() - interval '5 days', 10260.00);
+INSERT INTO order_items (order_id, product_id, quantity, unit_price_at_order) VALUES
+  ('eeeeeeee-0000-4000-8000-000000000005', 'dddddddd-0000-4000-8000-000000000009', 30, 342.00);
+
+-- Order 6 — Pooja Reddy, CANCELLED (the lost oncology deal — cancelled when
+-- the hospital signed with the competitor). 100 × CardioSafe 25 @240 = 24,000.00
+INSERT INTO orders (id, contact_id, order_date, status, delivered_at, total_amount) VALUES
+  ('eeeeeeee-0000-4000-8000-000000000006', 'cccccccc-0000-4000-8000-000000000014',
+   now() - interval '95 days', 'cancelled', NULL, 24000.00);
+INSERT INTO order_items (order_id, product_id, quantity, unit_price_at_order) VALUES
+  ('eeeeeeee-0000-4000-8000-000000000006', 'dddddddd-0000-4000-8000-000000000002', 100, 240.00);
+
+-- The timeline rows the order endpoints would have written live.
+INSERT INTO activities (contact_id, kind, body, created_at) VALUES
+  ('cccccccc-0000-4000-8000-000000000007', 'order', 'Order placed: 1 item, ₹37,000.00',  now() - interval '17 days'),
+  ('cccccccc-0000-4000-8000-000000000007', 'order', 'Order delivered: ₹37,000.00',       now() - interval '15 days'),
+  ('cccccccc-0000-4000-8000-000000000007', 'order', 'Order placed: 3 items, ₹9,986.00',  now() - interval '3 days'),
+  ('cccccccc-0000-4000-8000-000000000008', 'order', 'Order placed: 2 items, ₹8,880.00',  now() - interval '44 days'),
+  ('cccccccc-0000-4000-8000-000000000011', 'order', 'Order placed: 2 items, ₹30,300.00', now() - interval '12 days'),
+  ('cccccccc-0000-4000-8000-000000000012', 'order', 'Order placed: 1 item, ₹10,260.00',  now() - interval '6 days'),
+  ('cccccccc-0000-4000-8000-000000000012', 'order', 'Order delivered: ₹10,260.00',       now() - interval '5 days'),
+  ('cccccccc-0000-4000-8000-000000000014', 'order', 'Order placed: 1 item, ₹24,000.00',  now() - interval '95 days'),
+  ('cccccccc-0000-4000-8000-000000000014', 'order', 'Order cancelled: ₹24,000.00',       now() - interval '93 days');

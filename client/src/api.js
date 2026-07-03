@@ -74,4 +74,26 @@ export const api = {
     }),
 
   listWorkplaces: () => request('/api/workplaces'),
+
+  // ---- Phase 6: orders & products -----------------------------------------
+
+  listProducts: () => request('/api/products'),
+
+  // params: { status, contact_id } — both optional.
+  listOrders: (params = {}) => request(`/api/orders${queryString(params)}`),
+
+  // items: [{ product_id, quantity }] — no prices; the server snapshots
+  // catalog prices and computes the total (see orders.routes.js).
+  createOrder: (contact_id, items) =>
+    request('/api/orders', {
+      method: 'POST',
+      body: JSON.stringify({ contact_id, items }),
+    }),
+
+  // status: 'delivered' | 'cancelled' (only valid from 'pending').
+  updateOrderStatus: (id, status) =>
+    request(`/api/orders/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
 };

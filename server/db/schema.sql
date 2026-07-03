@@ -48,6 +48,9 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- Start clean so the file is safe to re-run during development.
 -- CASCADE drops dependent objects (the detail tables' FKs) in one go.
+DROP TABLE IF EXISTS order_items         CASCADE;
+DROP TABLE IF EXISTS orders              CASCADE;
+DROP TABLE IF EXISTS products            CASCADE;
 DROP TABLE IF EXISTS activities          CASCADE;
 DROP TABLE IF EXISTS hcp_details         CASCADE;
 DROP TABLE IF EXISTS pharmacist_details  CASCADE;
@@ -233,7 +236,10 @@ CREATE TABLE activities (
     -- CASCADE: activities are meaningless without their contact.
     contact_id UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
 
-    kind       TEXT NOT NULL CHECK (kind IN ('note', 'visit', 'call', 'status_change')),
+    -- 'order' added in Phase 6: order placed/delivered/cancelled events are
+    -- logged here by the orders endpoints (never by the user-facing
+    -- activities endpoint — same trust rule as 'status_change').
+    kind       TEXT NOT NULL CHECK (kind IN ('note', 'visit', 'call', 'status_change', 'order')),
 
     -- The content: the note text, what happened on the visit/call, or a
     -- human-readable description of the status change.
@@ -246,3 +252,96 @@ CREATE TABLE activities (
 -- this composite index serves it directly.
 CREATE INDEX idx_activities_contact_created
     ON activities (contact_id, created_at DESC);
+
+-- ============================================================================
+-- Phase 6 — Orders & Products
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 7. products — the sellable catalog
+-- ----------------------------------------------------------------------------
+CREATE TABLE products (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    name       TEXT NOT NULL,
+
+    -- Stock-keeping unit — the unambiguous product identifier used on
+    -- invoices. UNIQUE because two products sharing a SKU is a data bug.
+    sku        TEXT NOT NULL UNIQUE,
+
+    -- Presentation/strength, e.g. '500mg tablet, strip of 10'.
+    form       TEXT NOT NULL,
+
+    -- NUMERIC(12,2), never FLOAT: money must be exact. Floating point can't
+    -- represent 0.1 precisely, and rounding errors in prices compound.
+    -- CHECK >= 0 (not > 0): free samples are a legitimate zero-price line.
+    unit_price NUMERIC(12,2) NOT NULL CHECK (unit_price >= 0),
+
+    -- Soft delete: discontinued products flip to false rather than being
+    -- deleted, because old order_items still reference them and history
+    -- must keep working. The order form only offers active products.
+    active     BOOLEAN NOT NULL DEFAULT true,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ----------------------------------------------------------------------------
+-- 8. orders — one purchase by one contact
+-- ----------------------------------------------------------------------------
+CREATE TABLE orders (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    -- CASCADE like activities: an order is meaningless without its contact.
+    contact_id   UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+
+    order_date   TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    status       TEXT NOT NULL DEFAULT 'pending'
+                 CHECK (status IN ('pending', 'delivered', 'cancelled')),
+
+    delivered_at TIMESTAMPTZ,
+
+    -- STORED total, which looks like it contradicts the Phase-3 "derive,
+    -- don't store" rule — it doesn't, and the difference matters:
+    -- next_visit_due is derived from data that KEEPS CHANGING (new visits,
+    -- tier edits), so a stored copy would need constant invalidation. An
+    -- order total is a snapshot of a completed transaction: line items are
+    -- immutable after creation (there is no edit-order endpoint), so there
+    -- is nothing to drift FROM. Same reasoning as unit_price_at_order below.
+    total_amount NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
+
+    -- Status and timestamp can't disagree: delivered_at is set exactly when
+    -- (and only when) the status is 'delivered'. The '=' makes it two-way.
+    CHECK ((status = 'delivered') = (delivered_at IS NOT NULL))
+);
+
+-- The two list access paths: "orders for this contact" and "orders by status".
+CREATE INDEX idx_orders_contact ON orders (contact_id, order_date DESC);
+CREATE INDEX idx_orders_status  ON orders (status);
+
+-- ----------------------------------------------------------------------------
+-- 9. order_items — the priced line items of an order
+-- ----------------------------------------------------------------------------
+CREATE TABLE order_items (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    order_id            UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+
+    -- NO cascade from products: a product referenced by past orders must not
+    -- be deletable (that's what `active = false` is for). The RESTRICT
+    -- default makes deleting such a product an error — deliberately.
+    product_id          UUID NOT NULL REFERENCES products(id),
+
+    quantity            INT NOT NULL CHECK (quantity > 0),
+
+    -- Price SNAPSHOT at order time — the classic line-item rule. If the
+    -- catalog price changes next week, this order's history (and its total)
+    -- must still say what the customer actually agreed to pay.
+    unit_price_at_order NUMERIC(12,2) NOT NULL CHECK (unit_price_at_order >= 0),
+
+    -- One line per product per order: "3 + 2 of the same product" is one
+    -- line with quantity 5, not two lines the UI would render confusingly.
+    UNIQUE (order_id, product_id)
+);
+
+CREATE INDEX idx_order_items_order ON order_items (order_id);

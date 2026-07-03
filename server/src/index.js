@@ -17,6 +17,8 @@ const express = require('express');
 const contactsRouter = require('./routes/contacts.routes');
 const activitiesRouter = require('./routes/activities.routes');
 const workplacesRouter = require('./routes/workplaces.routes');
+const productsRouter = require('./routes/products.routes');
+const ordersRouter = require('./routes/orders.routes');
 
 const app = express();
 
@@ -42,6 +44,8 @@ app.get('/api/health', async (req, res) => {
 app.use('/api/contacts/:id/activities', activitiesRouter);
 app.use('/api/contacts', contactsRouter);
 app.use('/api/workplaces', workplacesRouter);
+app.use('/api/products', productsRouter);
+app.use('/api/orders', ordersRouter);
 
 // Anything that fell through every route above is an unknown path → 404 as
 // JSON (this is an API; HTML error pages would just confuse fetch callers).

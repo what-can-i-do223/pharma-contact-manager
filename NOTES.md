@@ -200,3 +200,51 @@ Phase 1 note.)
    warning flow — that's how browsers report any non-2xx fetch. Noted here
    so it doesn't get "fixed" into something worse (suppressing it would
    mean pre-checking duplicates with an extra request).
+
+---
+
+## Phase 6 — Orders & products
+
+### Mistakes
+
+1. **The browser-test script tried to select a disabled option.** The
+   first UI-verification run timed out because the driver picked "line 2's
+   dropdown, option index 2" — which was the product line 1 had already
+   selected, and the form (correctly, by design) disables already-picked
+   products on other lines. A test-script bug rather than an app bug, but
+   worth recording because the failure inadvertently proved the
+   duplicate-prevention UX works; the fixed script now asserts that
+   disabled state explicitly instead of stumbling over it.
+
+2. **A `grep -c … && …` shell chain silently skipped the test run once.**
+   `grep -c` exits non-zero when it counts zero matches, so "no errors
+   found" short-circuited the `&&` chain that should have launched the UI
+   tests. Caught immediately (exit 1 with no output) and re-run with `;`
+   instead. Logged as a reminder that "no matches" and "failure" are the
+   same exit code to grep.
+
+### Judgment calls
+
+1. **Stored `total_amount` despite Phase 3's derive-don't-store rule** —
+   documented at length in PHASE_6_EXPLAINED.md: derive from living data,
+   snapshot completed transactions. Line items are immutable (no edit-order
+   endpoint), so there is nothing for the stored total to drift from.
+
+2. **All money math in Postgres NUMERIC; JS only formats.** The client's
+   live order total is an explicit preview (floats, display-only); the
+   server recomputes exactly. Prices are never accepted from the client —
+   a request containing one is rejected with a named 400.
+
+3. **Order status is one-way** (`pending → delivered|cancelled`, terminal
+   thereafter), which let the schema enforce
+   `(status='delivered') = (delivered_at IS NOT NULL)` as a CHECK.
+
+4. **New activity kind `'order'`, writable only by order endpoints** —
+   same timeline-can't-lie rule as `status_change`.
+
+5. **Seeded orders are threaded into the existing contact stories** (e.g.
+   the ₹37,000 order IS the "reordered 200 strips" visit already in the
+   seed), with hand-computed totals verified against item sums by query.
+
+6. **Products endpoint returns only active products**; the discontinued
+   seed product exists specifically to test rejection paths.

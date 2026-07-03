@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import ContactList from './pages/ContactList.jsx';
 import ContactDetail from './pages/ContactDetail.jsx';
 import NewContact from './pages/NewContact.jsx';
+import OrdersPage from './pages/OrdersPage.jsx';
 
 // Subscribes to the URL fragment. hashchange fires on every <a href="#/...">
 // click and on back/forward, so plain anchors ARE our navigation — no
@@ -30,6 +31,7 @@ function useHashPath() {
 // over-building).
 function Screen({ path }) {
   if (path === '/new') return <NewContact />;
+  if (path === '/orders') return <OrdersPage />;
 
   const contactMatch = path.match(/^\/contacts\/([0-9a-f-]+)$/i);
   if (contactMatch) return <ContactDetail id={contactMatch[1]} />;
@@ -46,6 +48,7 @@ export default function App() {
         <a href="#/" className="brand">Pharma Contact Manager</a>
         <nav>
           <a href="#/" className={path === '/' ? 'active' : ''}>Contacts</a>
+          <a href="#/orders" className={path === '/orders' ? 'active' : ''}>Orders</a>
           <a href="#/new" className={path === '/new' ? 'active' : ''}>+ New contact</a>
         </nav>
       </header>

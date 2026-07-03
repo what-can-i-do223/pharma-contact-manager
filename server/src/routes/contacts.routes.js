@@ -277,6 +277,7 @@ const CONTACT_SELECT = `
     pr.purchasing_role,
     la.last_activity_at,
     lv.last_visit_at,
+    ov.total_order_value,
     ${NEXT_VISIT_DUE_SQL} AS next_visit_due,
     ${DAYS_OVERDUE_SQL}   AS days_overdue
   FROM contacts c
@@ -294,6 +295,14 @@ const CONTACT_SELECT = `
     FROM activities a
     WHERE a.contact_id = c.id AND a.kind = 'visit'
   ) lv ON true
+  LEFT JOIN LATERAL (
+    -- Phase 6: lifetime order value shown on the detail page. Cancelled
+    -- orders don't count — they're money that did NOT happen. NUMERIC sum
+    -- in Postgres (arrives as a string), coalesced so no-orders reads 0.
+    SELECT coalesce(sum(o.total_amount), 0) AS total_order_value
+    FROM orders o
+    WHERE o.contact_id = c.id AND o.status <> 'cancelled'
+  ) ov ON true
 `;
 
 // Folds a flat SQL row into the API's nested JSON shape. The `details`
@@ -330,6 +339,8 @@ function shapeContact(row) {
     next_visit_due: row.next_visit_due,
     days_overdue: row.days_overdue,
     is_overdue: row.days_overdue > 0,
+    // NUMERIC string, e.g. "46986.00" — formatting is the client's job.
+    total_order_value: row.total_order_value,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };

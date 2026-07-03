@@ -11,6 +11,17 @@ export function fmtDate(iso) {
   });
 }
 
+// "₹9,986.00" with Indian digit grouping (₹1,00,000). The API sends money
+// as exact NUMERIC strings; parseFloat here is display-only — no arithmetic
+// is ever done on the result.
+export function fmtINR(numericString) {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+  }).format(parseFloat(numericString ?? 0));
+}
+
 // "today" / "3d ago" / "2mo ago" — for the last-contacted column, where the
 // rep thinks in "how long since I touched this person", not calendar dates.
 export function timeAgo(iso) {
