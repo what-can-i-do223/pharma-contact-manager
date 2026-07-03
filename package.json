@@ -1,0 +1,14 @@
+{
+  "name": "pharma-contact-manager",
+  "private": true,
+  "description": "Lead & contact manager for a pharma sales rep — root convenience scripts",
+  "scripts": {
+    "db:create": "createdb pharma_contacts || echo 'database already exists — fine'",
+    "db:schema": "psql -d pharma_contacts -f server/db/schema.sql",
+    "db:seed": "psql -d pharma_contacts -f server/db/seed.sql",
+    "db:reset": "npm run db:schema && npm run db:seed",
+    "setup": "npm run db:create && npm run db:reset && npm install --prefix server && npm install --prefix client",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client"
+  }
+}

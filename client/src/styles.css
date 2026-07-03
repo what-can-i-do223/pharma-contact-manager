@@ -1,0 +1,208 @@
+/* ============================================================================
+   styles.css — the app's entire styling. Plain CSS, no framework.
+   Organization: reset → layout → controls/forms → table → badges → detail
+   page → responsive tweaks. Colors: neutral grays, one accent (blue), and
+   semantic badge colors defined once as variables.
+   ========================================================================= */
+
+:root {
+  --accent: #2563eb;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --bg: #f9fafb;
+  --card: #ffffff;
+  --red: #dc2626;
+  --red-bg: #fee2e2;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.5;
+}
+
+/* ---- layout ---------------------------------------------------------- */
+
+.app { min-height: 100vh; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand { font-weight: 700; color: var(--text); text-decoration: none; }
+
+.topbar nav { display: flex; gap: 1rem; }
+.topbar nav a { color: var(--muted); text-decoration: none; }
+.topbar nav a.active, .topbar nav a:hover { color: var(--accent); }
+
+main { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
+.narrow { max-width: 560px; }
+
+h1 { font-size: 1.4rem; margin: 0.5rem 0; }
+h2 { font-size: 1.1rem; margin-top: 2rem; }
+
+.muted { color: var(--muted); }
+
+.error-banner {
+  background: var(--red-bg);
+  color: var(--red);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+}
+
+/* ---- controls & forms ------------------------------------------------- */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;      /* controls stack gracefully on narrow screens */
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.controls input[type='search'] { flex: 1; min-width: 160px; }
+
+input, select, button, textarea {
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text);
+}
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  cursor: pointer;
+}
+button:disabled { opacity: 0.6; cursor: default; }
+button.secondary { background: var(--card); color: var(--text); border-color: var(--border); }
+
+.field { display: block; margin: 0.75rem 0; font-size: 0.9rem; }
+.field input, .field select { display: block; width: 100%; margin-top: 0.25rem; }
+.field.checkbox { display: flex; align-items: center; gap: 0.5rem; }
+.field.checkbox input { width: auto; margin: 0; }
+
+.field-row { display: flex; gap: 1rem; }
+.field-row .field { flex: 1; }
+
+/* ---- contact table ----------------------------------------------------- */
+
+/* The wrapper (not the page) scrolls when the table is wider than the
+   viewport — the "responsive enough" strategy for tabular data. */
+.table-wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--border); border-radius: 8px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th, td { text-align: left; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--bg); }
+th { color: var(--muted); font-weight: 600; font-size: 0.8rem; }
+
+.row-link { color: var(--text); font-weight: 600; text-decoration: none; }
+.row-link:hover { color: var(--accent); }
+
+.tier { font-weight: 700; }
+
+/* ---- badges ------------------------------------------------------------ */
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.type-hcp        { background: #dbeafe; color: #1d4ed8; }
+.type-pharmacist { background: #dcfce7; color: #15803d; }
+.type-procurement{ background: #ede9fe; color: #6d28d9; }
+
+.status-lead    { background: #f3f4f6; color: #374151; }
+.status-active  { background: #dcfce7; color: #15803d; }
+.status-dormant { background: #fef3c7; color: #b45309; }
+.status-closed  { background: #f3f4f6; color: #9ca3af; }
+
+.overdue { background: var(--red-bg); color: var(--red); }
+.tier-badge { background: #f3f4f6; color: #374151; }
+
+.kind-note          { background: #f3f4f6; color: #374151; }
+.kind-visit         { background: #dbeafe; color: #1d4ed8; }
+.kind-call          { background: #dcfce7; color: #15803d; }
+.kind-status_change { background: #fef3c7; color: #b45309; }
+
+/* ---- detail page -------------------------------------------------------- */
+
+.detail-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 0.75rem 0; }
+.detail-head h1 { margin: 0; }
+
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start; }
+
+.facts { margin: 0; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+.facts dt { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 0.6rem; }
+.facts dt:first-child { margin-top: 0; }
+.facts dd { margin: 0; }
+
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+.card h3 { margin-top: 0; }
+
+.log-form { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.log-form input { flex: 1; min-width: 200px; }
+
+.timeline { list-style: none; padding: 0; margin: 0; }
+.timeline li {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.timeline-body { flex: 1; }
+.timeline-date { white-space: nowrap; }
+
+/* ---- new-contact form ---------------------------------------------------- */
+
+.type-picker { display: flex; gap: 0.5rem; margin: 1rem 0; }
+.type-picker label {
+  flex: 1;
+  text-align: center;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  background: var(--card);
+  font-size: 0.9rem;
+}
+.type-picker label.picked { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.type-picker input { display: none; } /* the styled label IS the control */
+
+.dup-warning {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-top: 1rem;
+}
+.dup-warning ul { margin: 0.5rem 0; padding-left: 1.25rem; }
+.dup-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+
+/* ---- responsive ---------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  .detail-grid { grid-template-columns: 1fr; } /* facts above edit panel */
+  .field-row { flex-direction: column; gap: 0; }
+  main { padding: 1rem; }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "pharma-contact-manager-server",
+  "private": true,
+  "description": "Express + raw pg REST API for the pharma contact manager",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pg": "^8.12.0"
+  }
+}
