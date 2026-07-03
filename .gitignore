@@ -1,5 +1,11 @@
 node_modules/
-.env
 dist/
 .DS_Store
 *.log
+
+# Secrets: .env at any depth, plus variants like .env.local — but keep the
+# committed placeholder files (.env.example) tracked. Security rule from
+# CONTACT_MANAGER_PHASE6plus_SPEC.md: real credentials never enter git.
+.env
+.env.*
+!.env.example
