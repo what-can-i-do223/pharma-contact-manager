@@ -13,6 +13,7 @@ import { fmtDate, timeAgo } from '../format.js';
 import { TypeBadge, StatusBadge, OverdueFlag } from '../components/Badges.jsx';
 import TypeDetailFields from '../components/TypeDetailFields.jsx';
 import OrderSection from '../components/OrderSection.jsx';
+import AddToCalendarButton from '../components/AddToCalendarButton.jsx';
 
 const STATUSES = ['lead', 'active', 'dormant', 'closed'];
 const TIERS = ['A', 'B', 'C'];
@@ -58,7 +59,7 @@ export default function ContactDetail({ id }) {
       </div>
 
       <div className="detail-grid">
-        <Facts contact={contact} />
+        <Facts contact={contact} onSynced={load} />
         <EditPanel contact={contact} onSaved={load} />
       </div>
 
@@ -75,7 +76,7 @@ export default function ContactDetail({ id }) {
 }
 
 // ── Read-only facts card ─────────────────────────────────────────────────────
-function Facts({ contact }) {
+function Facts({ contact, onSynced }) {
   const d = contact.details;
   return (
     <dl className="facts">
@@ -118,6 +119,8 @@ function Facts({ contact }) {
       <dd>{timeAgo(contact.last_visit_at)}</dd>
       <dt>Next visit due</dt>
       <dd>{fmtDate(contact.next_visit_due)}</dd>
+      <dt>Calendar</dt>
+      <dd><AddToCalendarButton contact={contact} onSynced={onSynced} /></dd>
     </dl>
   );
 }

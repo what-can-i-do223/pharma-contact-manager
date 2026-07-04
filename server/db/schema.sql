@@ -170,6 +170,14 @@ CREATE TABLE contacts (
     -- part to explain, at the cost of discipline in our own queries.
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
 
+    -- Phase 8: the Google Calendar event id for THIS contact's upcoming due
+    -- visit, once the rep has synced it. NULL = not on any calendar yet.
+    -- Storing it makes "Add to Google Calendar" idempotent — a second click
+    -- returns the existing event instead of creating a duplicate. It's the
+    -- rep's own token that created the event, so the id is meaningful only
+    -- within that rep's calendar.
+    calendar_event_id TEXT,
+
     -- This UNIQUE pair exists ONLY as the target for the composite foreign
     -- keys in the detail tables below — it lets the DB guarantee that an
     -- hcp_details row can only ever attach to a contact whose type is 'hcp'.

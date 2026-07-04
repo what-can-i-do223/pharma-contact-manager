@@ -118,18 +118,66 @@ async function getGoogleClientForRep(repId) {
     // The refresh round trip: googleapis exchanges the refresh token for a
     // fresh access token. Persist it so other requests benefit — otherwise
     // every request would refresh again until this one's token expired.
-    const { credentials } = await client.refreshAccessToken();
-    await pool.query(
-      `UPDATE reps SET google_access_token = $2, token_expiry = $3 WHERE id = $1`,
-      [
-        repId,
-        credentials.access_token,
-        credentials.expiry_date ? new Date(credentials.expiry_date) : null,
-      ]
-    );
+    try {
+      const { credentials } = await client.refreshAccessToken();
+      await pool.query(
+        `UPDATE reps SET google_access_token = $2, token_expiry = $3 WHERE id = $1`,
+        [
+          repId,
+          credentials.access_token,
+          credentials.expiry_date ? new Date(credentials.expiry_date) : null,
+        ]
+      );
+    } catch {
+      // The refresh token is revoked/expired (Google returns invalid_grant).
+      // Collapse it into the same "not connected" signal callers already
+      // handle, so a revoked grant becomes a "reconnect Google" prompt, not
+      // a 500. (We don't log the error — it can carry token material.)
+      throw new GoogleNotConnectedError();
+    }
   }
 
   return client;
+}
+
+// ----------------------------------------------------------------------------
+// Phase 8 — Google Calendar
+// ----------------------------------------------------------------------------
+
+// Builds the events.insert request body for a contact's due visit. Pure and
+// side-effect-free so it's unit-testable without touching Google. All-day
+// event on the due date: for all-day events Google treats end.date as
+// EXCLUSIVE, so a one-day event ends on the following day.
+function buildVisitEvent({ fullName, workplace, nextVisitDue }) {
+  const start = new Date(nextVisitDue);
+  const ymd = (d) => d.toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+  const end = new Date(start.getTime() + 86400000);
+
+  const location = workplace
+    ? [workplace.name, workplace.city].filter(Boolean).join(', ')
+    : undefined;
+
+  return {
+    summary: `Visit: ${fullName}`,
+    location,
+    description: 'Scheduled by Pharma Contact Manager — tier-based follow-up visit.',
+    start: { date: ymd(start) },
+    end: { date: ymd(end) },
+  };
+}
+
+// Creates the event on the rep's PRIMARY Google calendar and returns its id.
+// Uses the rep's stored token (refreshing if needed via getGoogleClientForRep,
+// which throws GoogleNotConnectedError when the rep hasn't connected / has
+// revoked access — the caller turns that into a reconnect prompt).
+async function createCalendarEvent(repId, eventBody) {
+  const auth = await getGoogleClientForRep(repId);
+  const calendar = google.calendar({ version: 'v3', auth });
+  const res = await calendar.events.insert({
+    calendarId: 'primary',
+    requestBody: eventBody,
+  });
+  return res.data.id;
 }
 
 module.exports = {
@@ -139,4 +187,6 @@ module.exports = {
   decryptToken,
   getGoogleClientForRep,
   GoogleNotConnectedError,
+  buildVisitEvent,
+  createCalendarEvent,
 };

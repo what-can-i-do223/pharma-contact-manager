@@ -82,6 +82,17 @@ export const api = {
 
   listWorkplaces: () => request('/api/workplaces'),
 
+  // ---- Phase 8: agenda & calendar -----------------------------------------
+
+  // This week's due visits + pending deliveries (local data; no Google needed).
+  getAgenda: () => request('/api/agenda'),
+
+  // Add a contact's due visit to the rep's Google Calendar. Throws ApiError
+  // with status 409 + payload.code 'google_not_connected' when the rep hasn't
+  // connected Google — the UI turns that into a "Connect Google" prompt.
+  addToCalendar: (contactId) =>
+    request(`/api/contacts/${contactId}/calendar`, { method: 'POST' }),
+
   // ---- Phase 6: orders & products -----------------------------------------
 
   listProducts: () => request('/api/products'),

@@ -361,3 +361,57 @@ Phase 1 note.)
    in a transaction — against the DB, plus an API read of a seeded rep. The
    remaining untested surface is the same ~30 Google lines noted in the main
    Phase 7 entry, not the seeding itself.
+
+---
+
+## Phase 8 — Google Calendar sync
+
+### Mistakes
+
+No code mistakes this phase. One process note worth recording so it doesn't
+read as a real bug:
+
+1. **A test-harness quoting error briefly looked like a broken endpoint.**
+   The first server test run built the auth header as an unquoted shell var
+   (`AUTH="-H Cookie:session=$JWT"`) and passed it as `curl $AUTH …`. Word-
+   splitting mangled the cookie, so authenticated requests came back empty
+   or 400 while anonymous ones correctly 401'd — which momentarily looked
+   like the new agenda/calendar routes were failing. Re-running with a
+   properly quoted `-H "Cookie: session=$JWT"` showed everything working
+   (agenda correct, calendar 409 graceful). The bug was in the test shell,
+   not the app — logged so the "it was 400!" moment isn't mistaken for a
+   real defect later.
+
+### Judgment calls
+
+1. **Local-first agenda; Google is an enhancement layered on top.** The
+   agenda reads only the DB so it works with Google disconnected; only the
+   per-row "Add to Calendar" touches Google, and that degrades to a
+   reconnect link. Rejected making the agenda read from Google (a core
+   screen shouldn't depend on an external service).
+
+2. **Extracted the tier-interval SQL into visitPlanner.js** shared by the
+   contacts list and the agenda, rather than duplicating the A/B/C intervals
+   — the exact drift risk Phase 3 argued against. Verified the contacts
+   overdue numbers are unchanged after the refactor.
+
+3. **Event id stored on the CONTACT, not the activity** — the calendar event
+   is about the contact's upcoming (computed) due visit, a property of the
+   contact, not of any past activity row. Makes "Add to Calendar" idempotent.
+
+4. **Refresh-token failure re-thrown as GoogleNotConnectedError**, so a
+   revoked grant and a never-connected account share one graceful "reconnect"
+   path (409 + code) instead of a 500.
+
+5. **All-day events** (visit reminders are a day, not a time slot); handled
+   Google's exclusive `end.date` by ending on the next day.
+
+6. **Agenda excludes closed contacts** (you don't plan visits to lost
+   accounts) but keeps dormant (overdue dormant = re-engagement cue). An
+   agenda-specific product filter; the raw overdue math stays status-
+   independent elsewhere.
+
+7. **The live calendar.events.insert call remains untested here** (no real
+   Google creds, same boundary as Phase 7's token exchange). Everything
+   around it is tested: event-payload unit test, idempotent short-circuit,
+   not-connected 409, agenda, and the UI reconnect flow.

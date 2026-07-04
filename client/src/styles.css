@@ -238,6 +238,15 @@ th { color: var(--muted); font-weight: 600; font-size: 0.8rem; }
 
 .order-value-line { font-size: 0.9rem; font-weight: 400; }
 
+/* ---- agenda & calendar (Phase 8) ---------------------------------------- */
+
+.cal-btn { font-size: 0.8rem; padding: 0.3rem 0.55rem; }
+.cal-chip { font-size: 0.8rem; white-space: nowrap; }
+.cal-chip.synced { color: #15803d; font-weight: 600; }
+.cal-chip.reconnect { color: var(--muted); }
+.cal-chip.reconnect a { color: var(--accent); }
+.error-inline { color: var(--red); font-size: 0.8rem; }
+
 /* ---- new-contact form ---------------------------------------------------- */
 
 .type-picker { display: flex; gap: 0.5rem; margin: 1rem 0; }

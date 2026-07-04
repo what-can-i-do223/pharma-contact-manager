@@ -13,6 +13,7 @@ import ContactList from './pages/ContactList.jsx';
 import ContactDetail from './pages/ContactDetail.jsx';
 import NewContact from './pages/NewContact.jsx';
 import OrdersPage from './pages/OrdersPage.jsx';
+import Agenda from './pages/Agenda.jsx';
 import Login from './pages/Login.jsx';
 
 // Subscribes to the URL fragment. hashchange fires on every <a href="#/...">
@@ -34,6 +35,7 @@ function useHashPath() {
 function Screen({ path }) {
   if (path === '/new') return <NewContact />;
   if (path === '/orders') return <OrdersPage />;
+  if (path === '/agenda') return <Agenda />;
 
   const contactMatch = path.match(/^\/contacts\/([0-9a-f-]+)$/i);
   if (contactMatch) return <ContactDetail id={contactMatch[1]} />;
@@ -69,6 +71,7 @@ export default function App() {
         <a href="#/" className="brand">Pharma Contact Manager</a>
         <nav>
           <a href="#/" className={path === '/' ? 'active' : ''}>Contacts</a>
+          <a href="#/agenda" className={path === '/agenda' ? 'active' : ''}>Agenda</a>
           <a href="#/orders" className={path === '/orders' ? 'active' : ''}>Orders</a>
           <a href="#/new" className={path === '/new' ? 'active' : ''}>+ New contact</a>
         </nav>

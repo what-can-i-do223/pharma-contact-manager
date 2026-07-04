@@ -3,11 +3,12 @@
 // ============================================================================
 //
 // Endpoints:
-//   POST   /api/contacts        create (base + type detail row, one transaction)
-//   GET    /api/contacts        list with ?type= ?status= ?city= ?q= ?sort=
-//   GET    /api/contacts/:id    full detail incl. type details + activity timeline
-//   PATCH  /api/contacts/:id    update base/status/details (status change is
-//                               also logged as an activity, same transaction)
+//   POST   /api/contacts             create (base + type detail row, one txn)
+//   GET    /api/contacts             list with ?type= ?status= ?city= ?q= ?sort=
+//   GET    /api/contacts/:id         full detail incl. details + timeline
+//   PATCH  /api/contacts/:id         update base/status/details (status change
+//                                    is also logged as an activity, same txn)
+//   POST   /api/contacts/:id/calendar  add the due visit to Google Calendar
 //
 // CONVENTIONS USED THROUGHOUT:
 //   * Every SQL value goes through $1/$2 placeholders — never string
@@ -22,6 +23,11 @@
 
 const express = require('express');
 const { pool } = require('../db');
+const {
+  buildVisitEvent,
+  createCalendarEvent,
+  GoogleNotConnectedError,
+} = require('../google');
 
 const router = express.Router();
 
@@ -65,34 +71,17 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ----------------------------------------------------------------------------
-// Phase 3a — visit-tier planner constants
+// Phase 3a — visit-tier planner
 // ----------------------------------------------------------------------------
-// How often each tier should be visited. THE product rule of the planner —
-// change it here and every computed due date follows, because nothing below
-// stores a due date: it's derived at query time from the activity log.
-const TIER_VISIT_INTERVAL_DAYS = { A: 14, B: 30, C: 90 };
-
-// The tier→interval rule as a SQL fragment. Interpolation is safe here:
-// every character comes from the server-side constant above (tier letters
-// and integers), never from a request.
-const TIER_INTERVAL_SQL = `make_interval(days => CASE c.tier ${Object.entries(
-  TIER_VISIT_INTERVAL_DAYS
-)
-  .map(([tier, days]) => `WHEN '${tier}' THEN ${days}`)
-  .join(' ')} END)`;
-
-// "When is the next visit due?" = last actual visit (or, for contacts never
-// visited, when we first added them) + the tier's interval. `lv` is the
-// LATERAL join in CONTACT_SELECT below. Defined once and reused in SELECT,
-// WHERE (?overdue=) and ORDER BY (sort=overdue) — SQL can't reference a
-// SELECT alias from WHERE, so the expression itself is the shared artifact.
-const NEXT_VISIT_DUE_SQL = `(coalesce(lv.last_visit_at, c.created_at) + ${TIER_INTERVAL_SQL})`;
-
-// Signed whole days past due: 6 = six days overdue, -9 = due in nine days.
-// Keeping the sign (rather than clamping at 0) costs nothing and lets the
-// client show "due in N days" for free. floor() so a contact only counts as
-// "1 day overdue" once a full day has passed.
-const DAYS_OVERDUE_SQL = `floor(extract(epoch FROM (now() - ${NEXT_VISIT_DUE_SQL})) / 86400)::int`;
+// The tier→due-date rule now lives in visitPlanner.js (shared with the Phase-8
+// agenda). NEXT_VISIT_DUE_SQL / DAYS_OVERDUE_SQL are SQL fragments reused in
+// SELECT, WHERE (?overdue=) and ORDER BY (sort=overdue) — SQL can't reference
+// a SELECT alias from WHERE, so the expression itself is the shared artifact.
+// They require the `c` (contacts) alias and the `lv` LATERAL join below.
+const {
+  NEXT_VISIT_DUE_SQL,
+  DAYS_OVERDUE_SQL,
+} = require('../visitPlanner');
 
 // ----------------------------------------------------------------------------
 // Phase 3b — duplicate-warning threshold
@@ -275,6 +264,7 @@ const CONTACT_SELECT = `
     h.specialty, h.role,
     p.is_owner,
     pr.purchasing_role,
+    c.calendar_event_id,
     la.last_activity_at,
     lv.last_visit_at,
     ov.total_order_value,
@@ -341,6 +331,8 @@ function shapeContact(row) {
     is_overdue: row.days_overdue > 0,
     // NUMERIC string, e.g. "46986.00" — formatting is the client's job.
     total_order_value: row.total_order_value,
+    // Phase 8: null until the rep syncs this contact's due visit to Google.
+    calendar_event_id: row.calendar_event_id,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -655,6 +647,58 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     throw err;
   } finally {
     client.release();
+  }
+}));
+
+// ----------------------------------------------------------------------------
+// POST /api/contacts/:id/calendar — add this contact's due visit to Google
+// ----------------------------------------------------------------------------
+// Creates an all-day "Visit: <name>" event on the rep's Google Calendar for
+// the contact's computed next_visit_due, at the workplace location, then
+// stores the returned event id so a repeat click doesn't duplicate it.
+//
+// GRACEFUL DEGRADATION: if the rep hasn't connected Google (or revoked it),
+// getGoogleClientForRep throws GoogleNotConnectedError → we answer 409 with a
+// machine-readable code the client turns into a "Reconnect Google" prompt,
+// never a 500. The rest of the app (including the agenda) works regardless.
+router.post('/:id/calendar', asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!UUID_RE.test(id)) return badRequest(res, 'contact id must be a UUID');
+
+  const contact = await fetchContact(id, req.rep.id);
+  if (!contact) return res.status(404).json({ error: 'contact not found' });
+
+  // Idempotent: already synced → return the existing event, no Google call.
+  // This is the dedup the stored id exists for.
+  if (contact.calendar_event_id) {
+    return res.json({ calendar_event_id: contact.calendar_event_id, created: false });
+  }
+
+  try {
+    const eventBody = buildVisitEvent({
+      fullName: contact.full_name,
+      workplace: contact.workplace,
+      nextVisitDue: contact.next_visit_due,
+    });
+    const eventId = await createCalendarEvent(req.rep.id, eventBody);
+
+    // Persist the id (scoped write). If two requests raced, the first wins;
+    // the second's event id would be dropped here — acceptable for a manual
+    // one-click action, and the far-more-common repeat click is caught by
+    // the idempotent check above before any Google call.
+    await pool.query(
+      'UPDATE contacts SET calendar_event_id = $1 WHERE id = $2 AND rep_id = $3',
+      [eventId, id, req.rep.id]
+    );
+    res.status(201).json({ calendar_event_id: eventId, created: true });
+  } catch (err) {
+    if (err instanceof GoogleNotConnectedError) {
+      return res.status(409).json({
+        error: 'Google account not connected — reconnect to add calendar events',
+        code: 'google_not_connected',
+      });
+    }
+    throw err; // a real Google/API failure → central 500 handler
   }
 }));
 
