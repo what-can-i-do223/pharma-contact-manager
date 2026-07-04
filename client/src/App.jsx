@@ -8,10 +8,12 @@
 // line of it can be explained on camera. A router library would be the
 // right call at five+ screens with guards/nesting — not here.
 import { useEffect, useState } from 'react';
+import { api } from './api.js';
 import ContactList from './pages/ContactList.jsx';
 import ContactDetail from './pages/ContactDetail.jsx';
 import NewContact from './pages/NewContact.jsx';
 import OrdersPage from './pages/OrdersPage.jsx';
+import Login from './pages/Login.jsx';
 
 // Subscribes to the URL fragment. hashchange fires on every <a href="#/...">
 // click and on back/forward, so plain anchors ARE our navigation — no
@@ -42,6 +44,25 @@ function Screen({ path }) {
 export default function App() {
   const path = useHashPath();
 
+  // Session state (Phase 7): undefined = probing, null = anonymous,
+  // object = the signed-in rep. One probe on mount; the httpOnly session
+  // cookie rides along on every request automatically.
+  const [rep, setRep] = useState(undefined);
+
+  useEffect(() => {
+    api.me().then(setRep).catch(() => setRep(null));
+  }, []);
+
+  async function logout() {
+    await api.logout().catch(() => {}); // even if it fails, drop to login
+    setRep(null);
+  }
+
+  // Don't flash the login screen at every signed-in rep for the few ms the
+  // probe takes — render nothing until we know.
+  if (rep === undefined) return null;
+  if (rep === null) return <Login />;
+
   return (
     <div className="app">
       <header className="topbar">
@@ -51,6 +72,11 @@ export default function App() {
           <a href="#/orders" className={path === '/orders' ? 'active' : ''}>Orders</a>
           <a href="#/new" className={path === '/new' ? 'active' : ''}>+ New contact</a>
         </nav>
+        <div className="rep-box">
+          {/* req.rep from the server — the client can't invent an identity */}
+          <span className="muted">{rep.name}</span>
+          <button className="secondary" onClick={logout}>Sign out</button>
+        </div>
       </header>
       <main>
         <Screen path={path} />

@@ -50,6 +50,13 @@ function queryString(params) {
 }
 
 export const api = {
+  // ---- Phase 7: session -----------------------------------------------------
+  // Who is signed in? 401 (thrown as ApiError) means nobody — App.jsx
+  // catches that and shows the login screen. The session itself is an
+  // httpOnly cookie: JS never sees or stores any token.
+  me: () => request('/auth/me'),
+  logout: () => request('/auth/logout', { method: 'POST' }),
+
   listContacts: (params = {}) => request(`/api/contacts${queryString(params)}`),
 
   getContact: (id) => request(`/api/contacts/${id}`),

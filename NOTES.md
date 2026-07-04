@@ -248,3 +248,63 @@ Phase 1 note.)
 
 6. **Products endpoint returns only active products**; the discontinued
    seed product exists specifically to test rejection paths.
+
+---
+
+## Phase 7 — Google OAuth + multi-rep scoping
+
+### Mistakes
+
+1. **`DELETE FROM reps CASCADE` — SQL that doesn't exist.** The first
+   seed edit wrote `DELETE FROM reps CASCADE` (CASCADE belongs to
+   TRUNCATE/DROP, not DELETE) and placed the statement before the contacts
+   deletion, which the FK would have rejected anyway. Caught on re-read
+   seconds later, before the seed was ever run; fixed by moving a plain
+   `DELETE FROM reps` to the end of the wipe order. Logged because it's a
+   real "the AI wrote invalid SQL" moment even though it never executed.
+
+2. **Ran `npm run db:reset` from the wrong directory.** The reset "failed"
+   with *Missing script: db:reset* because the shell was sitting in
+   `server/` (the root package.json has the script). Momentarily looked
+   like a broken seed; it was a broken working directory. Same lesson as
+   Phase 6's grep incident: read the error before suspecting the code.
+
+### Judgment calls
+
+1. **No password system at all** — Google OAuth is the account system, per
+   the spec's architecture decision. No hashes, no reset flow, no second
+   login path to secure.
+
+2. **Session = stateless signed JWT (12h) in an httpOnly SameSite=Lax
+   cookie**, rejected localStorage (XSS-readable) and a server-side session
+   store (state + cleanup for no prototype benefit).
+
+3. **Tenant scoping via explicit WHERE clauses + a cross-tenant test
+   battery**, rejected Postgres RLS (stronger in principle, but per-request
+   session variables through a connection pool are easy to misconfigure and
+   hard to explain on camera). Every route was probed as a second rep:
+   list/GET/PATCH/activities/orders all 404 or 400 cross-tenant, and the
+   duplicate-name check was scoped so its 409 can't leak names across reps.
+
+4. **404 (not 403) for other reps' resources** — "not yours" must be
+   indistinguishable from "doesn't exist" or ids become enumerable.
+
+5. **Refresh tokens AES-256-GCM-encrypted with a key derived from
+   SESSION_SECRET** — one secret to manage; rotating it logs everyone out
+   and forces Google re-consent (documented tradeoff). Access tokens stay
+   plaintext (1-hour lifetime, low value).
+
+6. **`prompt: 'consent'` on every login** so a refresh token always
+   arrives (Google omits it on repeat consents otherwise) — right for a
+   prototype whose DB gets reset; a production app would drop it after
+   first grant.
+
+7. **The live Google token exchange is untested in this environment** —
+   deliberately, since testing it would require real credentials in the
+   repo, which the security rules forbid. Everything up to Google's door is
+   tested (redirect shape, state CSRF check, forged sessions, isolation,
+   encryption); the human's first login with their own .env exercises the
+   rest. Stated in PHASE_7_EXPLAINED.md rather than glossed over.
+
+8. **Demo rep owns the seed; `npm run db:adopt` reassigns it** to the
+   first real Google account so the post-login demo isn't an empty screen.

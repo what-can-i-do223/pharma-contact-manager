@@ -57,6 +57,36 @@ DROP TABLE IF EXISTS pharmacist_details  CASCADE;
 DROP TABLE IF EXISTS procurement_details CASCADE;
 DROP TABLE IF EXISTS contacts            CASCADE;
 DROP TABLE IF EXISTS workplaces          CASCADE;
+DROP TABLE IF EXISTS reps                CASCADE;
+
+-- ----------------------------------------------------------------------------
+-- 0. reps — the sales reps themselves (Phase 7: Google login = the account)
+-- ----------------------------------------------------------------------------
+-- There is NO password column, deliberately: identity comes from "Sign in
+-- with Google" (OAuth). One consent flow gives us both who the rep is
+-- (google_sub/email/name) and the tokens for Calendar/Gmail (Phases 8–9).
+CREATE TABLE reps (
+    id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    -- Google's stable, unique subject identifier for the account. THIS is
+    -- the identity key — not email, which Google lets users change. UNIQUE
+    -- doubles as the upsert target on login.
+    google_sub               TEXT NOT NULL UNIQUE,
+
+    email                    TEXT NOT NULL,
+    name                     TEXT NOT NULL,
+
+    -- Google OAuth tokens. The ACCESS token is short-lived (~1h) and low
+    -- value; stored plaintext. The REFRESH token is long-lived and can mint
+    -- new access tokens indefinitely, so it is stored ENCRYPTED
+    -- (AES-256-GCM, key derived from SESSION_SECRET — see src/google.js)
+    -- and is never returned by any API response or written to any log.
+    google_access_token      TEXT,
+    google_refresh_token_enc TEXT,
+    token_expiry             TIMESTAMPTZ,
+
+    created_at               TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 -- ----------------------------------------------------------------------------
 -- 1. workplaces — the organizations contacts belong to
@@ -96,6 +126,12 @@ CREATE TABLE workplaces (
 -- ----------------------------------------------------------------------------
 CREATE TABLE contacts (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    -- Phase 7: the owning rep. NOT NULL — every contact belongs to exactly
+    -- one rep, and every query is scoped by it (multi-tenant isolation).
+    -- RESTRICT (the default) on delete: removing a rep who still owns data
+    -- is an error, not a cascade.
+    rep_id        UUID NOT NULL REFERENCES reps(id),
 
     full_name     TEXT NOT NULL,
 
@@ -147,6 +183,8 @@ CREATE TABLE contacts (
 CREATE INDEX idx_contacts_type   ON contacts (contact_type);
 CREATE INDEX idx_contacts_status ON contacts (status);
 CREATE INDEX idx_contacts_city   ON contacts (city);
+-- Every list query starts WHERE rep_id = … — this is the workhorse index.
+CREATE INDEX idx_contacts_rep    ON contacts (rep_id);
 
 -- ----------------------------------------------------------------------------
 -- 3–5. Per-type detail tables (the "class-table inheritance" leaves)
@@ -236,6 +274,12 @@ CREATE TABLE activities (
     -- CASCADE: activities are meaningless without their contact.
     contact_id UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
 
+    -- Phase 7: denormalized owner. Strictly derivable from the contact, but
+    -- rep-wide activity queries (Phase 9's digest, future reporting) should
+    -- not need a join to be tenant-safe — and unlike a "last visited" cache,
+    -- ownership never changes after insert, so there is nothing to drift.
+    rep_id     UUID NOT NULL REFERENCES reps(id),
+
     -- 'order' added in Phase 6: order placed/delivered/cancelled events are
     -- logged here by the orders endpoints (never by the user-facing
     -- activities endpoint — same trust rule as 'status_change').
@@ -252,6 +296,7 @@ CREATE TABLE activities (
 -- this composite index serves it directly.
 CREATE INDEX idx_activities_contact_created
     ON activities (contact_id, created_at DESC);
+CREATE INDEX idx_activities_rep ON activities (rep_id);
 
 -- ============================================================================
 -- Phase 6 — Orders & Products
@@ -294,6 +339,9 @@ CREATE TABLE orders (
     -- CASCADE like activities: an order is meaningless without its contact.
     contact_id   UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
 
+    -- Phase 7: owning rep (same reasoning as activities.rep_id).
+    rep_id       UUID NOT NULL REFERENCES reps(id),
+
     order_date   TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     status       TEXT NOT NULL DEFAULT 'pending'
@@ -318,6 +366,7 @@ CREATE TABLE orders (
 -- The two list access paths: "orders for this contact" and "orders by status".
 CREATE INDEX idx_orders_contact ON orders (contact_id, order_date DESC);
 CREATE INDEX idx_orders_status  ON orders (status);
+CREATE INDEX idx_orders_rep     ON orders (rep_id);
 
 -- ----------------------------------------------------------------------------
 -- 9. order_items — the priced line items of an order

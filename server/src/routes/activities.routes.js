@@ -49,17 +49,22 @@ router.post('/', asyncHandler(async (req, res) => {
 
   // Existence check first, so a missing contact is a clean 404 rather than
   // a foreign-key error we'd have to reverse-engineer a status code from.
-  // No transaction needed: this is a single INSERT, atomic by itself.
-  const exists = await pool.query('SELECT 1 FROM contacts WHERE id = $1', [id]);
+  // Scoped by rep (Phase 7): logging an activity on another rep's contact
+  // is the same 404 as a nonexistent one. No transaction needed: this is a
+  // single INSERT, atomic by itself.
+  const exists = await pool.query(
+    'SELECT 1 FROM contacts WHERE id = $1 AND rep_id = $2',
+    [id, req.rep.id]
+  );
   if (exists.rows.length === 0) {
     return res.status(404).json({ error: 'contact not found' });
   }
 
   const { rows } = await pool.query(
-    `INSERT INTO activities (contact_id, kind, body)
-     VALUES ($1, $2, $3)
+    `INSERT INTO activities (contact_id, rep_id, kind, body)
+     VALUES ($1, $2, $3, $4)
      RETURNING id, contact_id, kind, body, created_at`,
-    [id, body.kind, body.body.trim()]
+    [id, req.rep.id, body.kind, body.body.trim()]
   );
 
   res.status(201).json(rows[0]);

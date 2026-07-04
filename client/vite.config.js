@@ -13,6 +13,10 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': 'http://localhost:3001',
+      // Phase 7: the OAuth kickoff and session endpoints. The browser
+      // navigates to /auth/google on OUR origin; the proxy hands it to
+      // Express, which redirects on to Google.
+      '/auth': 'http://localhost:3001',
     },
   },
 });

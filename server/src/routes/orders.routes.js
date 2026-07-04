@@ -54,9 +54,13 @@ const ORDER_SELECT = `
 
 // Full order incl. line items — two simple queries, like the contact
 // detail endpoint. Products are joined for display fields; line_total is
-// computed by Postgres (NUMERIC), not JS.
-async function fetchOrder(id) {
-  const { rows } = await pool.query(`${ORDER_SELECT} WHERE o.id = $1`, [id]);
+// computed by Postgres (NUMERIC), not JS. repId scoping mirrors
+// fetchContact: another rep's order id behaves exactly like a missing one.
+async function fetchOrder(id, repId) {
+  const { rows } = await pool.query(
+    `${ORDER_SELECT} WHERE o.id = $1 AND o.rep_id = $2`,
+    [id, repId]
+  );
   if (!rows[0]) return null;
 
   const { rows: items } = await pool.query(
@@ -77,8 +81,9 @@ async function fetchOrder(id) {
 // ----------------------------------------------------------------------------
 router.get('/', asyncHandler(async (req, res) => {
   const { status, contact_id } = req.query;
-  const where = [];
-  const params = [];
+  // Tenant scope first, unconditionally — same pattern as the contacts list.
+  const where = ['o.rep_id = $1'];
+  const params = [req.rep.id];
 
   if (status !== undefined) {
     if (!ORDER_STATUSES.includes(status)) {
@@ -112,7 +117,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!UUID_RE.test(id)) return badRequest(res, 'order id must be a UUID');
 
-  const order = await fetchOrder(id);
+  const order = await fetchOrder(id, req.rep.id);
   if (!order) return res.status(404).json({ error: 'order not found' });
   res.json(order);
 }));
@@ -165,10 +170,11 @@ router.post('/', asyncHandler(async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Contact must exist (and, in Phase 7, will have to belong to the rep).
+    // Contact must exist AND belong to this rep — ordering on another
+    // rep's contact is indistinguishable from a nonexistent contact.
     const contact = await client.query(
-      'SELECT full_name FROM contacts WHERE id = $1',
-      [body.contact_id]
+      'SELECT full_name FROM contacts WHERE id = $1 AND rep_id = $2',
+      [body.contact_id, req.rep.id]
     );
     if (contact.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -190,8 +196,8 @@ router.post('/', asyncHandler(async (req, res) => {
     }
 
     const order = await client.query(
-      `INSERT INTO orders (contact_id) VALUES ($1) RETURNING id`,
-      [body.contact_id]
+      `INSERT INTO orders (contact_id, rep_id) VALUES ($1, $2) RETURNING id`,
+      [body.contact_id, req.rep.id]
     );
     const orderId = order.rows[0].id;
 
@@ -225,13 +231,13 @@ router.post('/', asyncHandler(async (req, res) => {
     // 'status_change': its presence proves an order was really placed.
     const n = body.items.length;
     await client.query(
-      `INSERT INTO activities (contact_id, kind, body)
-       VALUES ($1, 'order', $2)`,
-      [body.contact_id, `Order placed: ${n} item${n === 1 ? '' : 's'}, ${fmtINR(totaled.rows[0].total_amount)}`]
+      `INSERT INTO activities (contact_id, rep_id, kind, body)
+       VALUES ($1, $2, 'order', $3)`,
+      [body.contact_id, req.rep.id, `Order placed: ${n} item${n === 1 ? '' : 's'}, ${fmtINR(totaled.rows[0].total_amount)}`]
     );
 
     await client.query('COMMIT');
-    res.status(201).json(await fetchOrder(orderId));
+    res.status(201).json(await fetchOrder(orderId, req.rep.id));
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -261,10 +267,11 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     await client.query('BEGIN');
 
     // Lock the row: two simultaneous "mark delivered" clicks must not both
-    // proceed (same FOR UPDATE reasoning as the contact PATCH).
+    // proceed (same FOR UPDATE reasoning as the contact PATCH). Scoped:
+    // another rep's order is a 404 here.
     const current = await client.query(
-      'SELECT contact_id, status, total_amount FROM orders WHERE id = $1 FOR UPDATE',
-      [id]
+      'SELECT contact_id, status, total_amount FROM orders WHERE id = $1 AND rep_id = $2 FOR UPDATE',
+      [id, req.rep.id]
     );
     if (current.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -289,13 +296,13 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     );
 
     await client.query(
-      `INSERT INTO activities (contact_id, kind, body)
-       VALUES ($1, 'order', $2)`,
-      [contact_id, `Order ${newStatus}: ${fmtINR(total_amount)}`]
+      `INSERT INTO activities (contact_id, rep_id, kind, body)
+       VALUES ($1, $2, 'order', $3)`,
+      [contact_id, req.rep.id, `Order ${newStatus}: ${fmtINR(total_amount)}`]
     );
 
     await client.query('COMMIT');
-    res.json(await fetchOrder(id));
+    res.json(await fetchOrder(id, req.rep.id));
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

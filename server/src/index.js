@@ -12,8 +12,32 @@
 // ============================================================================
 
 require('dotenv').config();
-const express = require('express');
 
+// Fail fast on missing configuration — a clear message at boot beats a
+// cryptic 500 at first login. Values come from server/.env (see .env.example
+// for what each is and where to get it). Presence is checked, not validity:
+// the app boots with placeholder Google values; only the live OAuth exchange
+// needs real ones.
+const REQUIRED_ENV = [
+  'SESSION_SECRET',      // signs session JWTs + derives token encryption key
+  'GOOGLE_CLIENT_ID',    // OAuth login is THE login — not optional
+  'GOOGLE_CLIENT_SECRET',
+  'GOOGLE_REDIRECT_URI',
+];
+const missing = REQUIRED_ENV.filter((k) => !process.env[k]);
+if (missing.length > 0) {
+  console.error(
+    `Missing required environment variable(s): ${missing.join(', ')}\n` +
+      'Copy server/.env.example to server/.env and fill them in.'
+  );
+  process.exit(1);
+}
+
+const express = require('express');
+const cookieParser = require('cookie-parser');
+
+const requireRep = require('./requireRep');
+const authRouter = require('./routes/auth.routes');
 const contactsRouter = require('./routes/contacts.routes');
 const activitiesRouter = require('./routes/activities.routes');
 const workplacesRouter = require('./routes/workplaces.routes');
@@ -25,6 +49,8 @@ const app = express();
 // Parse JSON request bodies. Malformed JSON throws here and is turned into a
 // clean 400 by the error handler at the bottom.
 app.use(express.json());
+// Parses the Cookie header into req.cookies — how the session JWT arrives.
+app.use(cookieParser());
 
 // One-line liveness check — lets the setup instructions verify "server up +
 // DB reachable" before any real endpoint is exercised.
@@ -37,6 +63,16 @@ app.get('/api/health', async (req, res) => {
     res.status(500).json({ ok: false, error: 'database unreachable' });
   }
 });
+
+// Auth routes are PUBLIC by nature (you can't be logged in before logging
+// in). /auth/me is the one exception and applies requireRep itself.
+app.use('/auth', authRouter);
+
+// ---- THE AUTH WALL (Phase 7) ----------------------------------------------
+// Everything mounted below this line requires a valid session; handlers get
+// req.rep and scope every query by req.rep.id. /api/health stays above the
+// wall (mounted earlier) because it exposes nothing rep-owned.
+app.use('/api', requireRep);
 
 // The activities router is mounted on the nested path; `mergeParams` inside
 // it picks up `:id`. Mounted before /api/contacts only for readability —

@@ -348,8 +348,14 @@ function shapeContact(row) {
 
 // Fetch one contact in full API shape (used by GET /:id and to build the
 // response after POST/PATCH, so writes always return the canonical shape).
-async function fetchContact(id) {
-  const { rows } = await pool.query(`${CONTACT_SELECT} WHERE c.id = $1`, [id]);
+// repId is mandatory: another rep's contact id fetches nothing, so the
+// caller's 404 path handles both "doesn't exist" and "isn't yours" —
+// identically, which also avoids leaking WHICH ids exist.
+async function fetchContact(id, repId) {
+  const { rows } = await pool.query(
+    `${CONTACT_SELECT} WHERE c.id = $1 AND c.rep_id = $2`,
+    [id, repId]
+  );
   return rows[0] ? shapeContact(rows[0]) : null;
 }
 
@@ -361,8 +367,12 @@ router.get('/', asyncHandler(async (req, res) => {
 
   // WHERE clauses and their parameters are built in lockstep: push the value,
   // then reference it as $<position>. Values never touch the SQL string.
-  const where = [];
-  const params = [];
+  //
+  // Phase 7: the tenant scope is the FIRST clause, unconditionally — every
+  // other filter narrows within the rep's own book. req.rep comes from the
+  // verified session (requireRep), never from the request.
+  const where = ['c.rep_id = $1'];
+  const params = [req.rep.id];
 
   if (type !== undefined) {
     if (!CONTACT_TYPES.includes(type)) {
@@ -441,11 +451,13 @@ router.get('/:id', asyncHandler(async (req, res) => {
   // error, which would surface as a 500 for what is really a bad request.
   if (!UUID_RE.test(id)) return badRequest(res, 'contact id must be a UUID');
 
-  const contact = await fetchContact(id);
+  const contact = await fetchContact(id, req.rep.id);
   if (!contact) return res.status(404).json({ error: 'contact not found' });
 
   // Second query for the timeline. One round-trip more than a mega-join,
   // but each query stays trivially readable — the right trade at this scale.
+  // (No rep_id clause needed: fetchContact above already proved this
+  // contact belongs to req.rep, and activities hang off the contact.)
   const { rows: activities } = await pool.query(
     `SELECT id, kind, body, created_at
        FROM activities
@@ -482,14 +494,18 @@ router.post('/', asyncHandler(async (req, res) => {
   // rep's contacts is sub-millisecond. (An index needs the % operator and
   // set_limit() — machinery this data volume doesn't justify.)
   if (req.query.force !== 'true') {
+    // Scoped to the rep's own contacts — without this, the 409's matches
+    // would leak other reps' contact names to whoever probes with common
+    // names. Cross-rep "duplicates" are fine anyway: two reps can both
+    // know a Dr. Mehta.
     const { rows: matches } = await pool.query(
       `SELECT id, full_name, contact_type, city,
               round(similarity(full_name, $1)::numeric, 2) AS similarity
          FROM contacts
-        WHERE similarity(full_name, $1) >= $2
+        WHERE similarity(full_name, $1) >= $2 AND rep_id = $3
         ORDER BY similarity(full_name, $1) DESC
         LIMIT 5`,
-      [base.full_name, DUPLICATE_SIMILARITY_THRESHOLD]
+      [base.full_name, DUPLICATE_SIMILARITY_THRESHOLD, req.rep.id]
     );
     if (matches.length > 0) {
       // 409 Conflict: the request is well-formed but clashes with existing
@@ -506,9 +522,11 @@ router.post('/', asyncHandler(async (req, res) => {
   // Build the INSERT from whichever base fields were provided, so DB defaults
   // (status 'lead', tier 'C') apply when the client omits them — defaults
   // live in ONE place, the schema. Column names come from our validator's
-  // whitelist, never from raw input.
-  const cols = Object.keys(base);
-  const values = cols.map((c) => base[c]);
+  // whitelist, never from raw input. rep_id leads the list and comes from
+  // the session — the validator doesn't even have a rep_id field, so a
+  // body-supplied one is rejected as unknown input upstream.
+  const cols = ['rep_id', ...Object.keys(base)];
+  const values = [req.rep.id, ...Object.keys(base).map((c) => base[c])];
   const placeholders = cols.map((_, i) => `$${i + 1}`);
 
   // Transactions need one dedicated connection (BEGIN/COMMIT are per-
@@ -536,7 +554,7 @@ router.post('/', asyncHandler(async (req, res) => {
     );
 
     await client.query('COMMIT');
-    res.status(201).json(await fetchContact(contactId));
+    res.status(201).json(await fetchContact(contactId, req.rep.id));
   } catch (err) {
     await client.query('ROLLBACK');
     // 23503 = foreign key violation; the only FK reachable from user input
@@ -569,9 +587,12 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     // status actually change?) can't race a concurrent PATCH to the same
     // contact. Also tells us the contact's type, which details validation
     // needs — on PATCH the type comes from the DB, never the request.
+    // rep_id in the WHERE: another rep's contact is a 404 here, and every
+    // later statement in this transaction operates on the row this
+    // scoped-and-locked SELECT proved is ours.
     const current = await client.query(
-      'SELECT contact_type, status FROM contacts WHERE id = $1 FOR UPDATE',
-      [id]
+      'SELECT contact_type, status FROM contacts WHERE id = $1 AND rep_id = $2 FOR UPDATE',
+      [id, req.rep.id]
     );
     if (current.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -607,9 +628,9 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     // disagree, because they commit or roll back together.
     if (base.status !== undefined && base.status !== oldStatus) {
       await client.query(
-        `INSERT INTO activities (contact_id, kind, body)
-         VALUES ($1, 'status_change', $2)`,
-        [id, `Status changed from ${oldStatus} to ${base.status}.`]
+        `INSERT INTO activities (contact_id, rep_id, kind, body)
+         VALUES ($1, $2, 'status_change', $3)`,
+        [id, req.rep.id, `Status changed from ${oldStatus} to ${base.status}.`]
       );
     }
 
@@ -625,7 +646,7 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     }
 
     await client.query('COMMIT');
-    res.json(await fetchContact(id));
+    res.json(await fetchContact(id, req.rep.id));
   } catch (err) {
     await client.query('ROLLBACK');
     if (err.code === '23503') {
