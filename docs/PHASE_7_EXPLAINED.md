@@ -226,3 +226,71 @@ They'd have to forge a signature over the rep's UUID without
 SESSION_SECRET. jsonwebtoken verifies signature and expiry; the forged-
 secret test 401s. Rotating SESSION_SECRET instantly invalidates every
 session.
+
+## 5. Addendum — per-rep onboarding seed data
+
+**What & why.** A rep who signs in with Google for the very first time would
+otherwise land on a completely empty app. `seedStarterDataForRep(client,
+repId)` in [seedRep.js](../server/src/seedRep.js) populates their account
+with the same rich sample dataset the project ships in `db/seed.sql` — 14
+contacts across all three types with detail rows, workplaces, backdated
+activities (so overdue flags show immediately), and the six sample orders —
+all owned by that rep. The OAuth callback calls it **only on a brand-new
+rep**, inside the same transaction that creates the rep.
+
+**Detecting new vs returning — `(xmax = 0)`.** The upsert already existed;
+we added one column to its `RETURNING`. For a freshly INSERTED row Postgres
+leaves `xmax` at 0, whereas `ON CONFLICT DO UPDATE` locks the existing row
+first and leaves `xmax` non-zero — so `(xmax = 0) AS inserted` is true only
+on a rep's first login. Returning logins still refresh profile + tokens but
+are never reseeded (that would duplicate their book). Verified live: first
+login `inserted=true` and seeds; second `inserted=false` and the counts are
+byte-identical.
+
+**One transaction.** Rep row + all ~70 seed inserts run on one pooled
+connection between `BEGIN` and `COMMIT`; any failure rolls back both, so
+there is never a half-seeded rep. `seedStarterDataForRep` does no
+transaction control of its own — it operates on the caller's client, which
+is what lets it join the callback's transaction.
+
+**Fresh UUIDs, not the hardcoded seed ids.** `db/seed.sql` uses fixed
+`cccccccc-…`/`eeeeeeee-…` ids for the one demo rep; reusing those here would
+make the *second* rep collide on primary keys. So the function generates a
+new `crypto.randomUUID()` per contact/order and resolves the symbolic
+references (`workplace: 'lilavati'`, `sku: 'CS-010'`) through lookup maps
+built at seed time. The two-rep test confirmed **zero shared contact or
+order ids** between reps.
+
+**Global vs per-rep — the deliberate split.** `contacts`, `activities`,
+`orders`, `order_items` are per-rep (fresh UUIDs, stamped `rep_id`) — the
+isolated, owned data. `workplaces` and `products` stay **global** (they have
+no `rep_id`, matching this phase's decision) and are **get-or-create**:
+products by their unique SKU (`ON CONFLICT (sku) DO NOTHING`), workplaces by
+`(name, kind, city)` (select-or-insert, since the table has no unique key).
+So onboarding a hundred reps reuses the one shared catalog instead of
+creating a hundred duplicate "Lilavati Hospital" rows — the shared workplace
+dropdown stays clean — and the function still bootstraps the catalog on a
+fresh schema-only database. Verified: after two reps onboard, still exactly
+10 workplaces and 11 products.
+
+**Money path mirrors the real endpoint.** Seeded orders insert line items
+with prices snapshotted from the live product row, then let Postgres compute
+the NUMERIC total; the `'order'` timeline messages use that DB-computed
+total. Seeded orders are therefore indistinguishable from ones placed
+through `POST /api/orders`.
+
+**Demo rep still works.** `db/seed.sql` is unchanged and still owns its
+data; `seedStarterDataForRep` is a separate path for Google logins only, so
+`npm run setup`/`db:reset` behave exactly as before. `npm run db:adopt`
+remains the way to hand the demo seed to your real account if you'd rather
+not have both.
+
+**Q: Why not just always seed on login and dedupe?** Because "always seed"
+has no clean idempotency key for rep-owned rows — you'd re-create 14
+contacts every login and need to detect-and-skip each. Detecting the *insert*
+once, at the source, is exact and cheap.
+
+**Q: What if seeding fails halfway?** The transaction rolls back the rep row
+too, so the rep simply isn't created; their next login retries the whole
+thing cleanly. Better a retryable failed login than a permanent half-empty
+account.

@@ -23,6 +23,7 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const { pool } = require('../db');
 const { oauthClient, SCOPES, encryptToken } = require('../google');
+const { seedStarterDataForRep } = require('../seedRep');
 const requireRep = require('../requireRep');
 
 const router = express.Router();
@@ -96,35 +97,62 @@ router.get('/google/callback', asyncHandler(async (req, res) => {
   });
   const { sub, email, name } = ticket.getPayload();
 
-  // Upsert on google_sub: first login creates the rep, later logins update
-  // profile + tokens. COALESCE on the refresh token because Google omits it
-  // on repeat consents — never overwrite a stored one with NULL.
-  const { rows } = await pool.query(
-    `INSERT INTO reps (google_sub, email, name,
-                       google_access_token, google_refresh_token_enc, token_expiry)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (google_sub) DO UPDATE SET
-       email = EXCLUDED.email,
-       name = EXCLUDED.name,
-       google_access_token = EXCLUDED.google_access_token,
-       google_refresh_token_enc = COALESCE(EXCLUDED.google_refresh_token_enc,
-                                           reps.google_refresh_token_enc),
-       token_expiry = EXCLUDED.token_expiry
-     RETURNING id`,
-    [
-      sub,
-      email,
-      name || email,
-      tokens.access_token,
-      tokens.refresh_token ? encryptToken(tokens.refresh_token) : null,
-      tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-    ]
-  );
+  // Upsert on google_sub, then — for BRAND-NEW reps only — populate their
+  // account with onboarding starter data. Both happen in ONE transaction, so
+  // a new rep atomically gets their account AND their sample dataset, or
+  // neither: no half-seeded reps if seeding fails partway.
+  //
+  // `(xmax = 0) AS inserted` distinguishes insert from update in the upsert:
+  // for a freshly INSERTED row xmax is 0; ON CONFLICT DO UPDATE locks the
+  // existing row first, leaving xmax non-zero. So `inserted` is true only on
+  // a rep's very first login. Returning logins refresh profile+tokens (the
+  // COALESCE keeps a stored refresh token when Google omits one) and are
+  // NEVER reseeded — that would duplicate their data.
+  // `client` above is the Google OAuth client; use a distinct name for the
+  // pooled DB connection this transaction runs on.
+  const db = await pool.connect();
+  let repId;
+  try {
+    await db.query('BEGIN');
+    const { rows } = await db.query(
+      `INSERT INTO reps (google_sub, email, name,
+                         google_access_token, google_refresh_token_enc, token_expiry)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (google_sub) DO UPDATE SET
+         email = EXCLUDED.email,
+         name = EXCLUDED.name,
+         google_access_token = EXCLUDED.google_access_token,
+         google_refresh_token_enc = COALESCE(EXCLUDED.google_refresh_token_enc,
+                                             reps.google_refresh_token_enc),
+         token_expiry = EXCLUDED.token_expiry
+       RETURNING id, (xmax = 0) AS inserted`,
+      [
+        sub,
+        email,
+        name || email,
+        tokens.access_token,
+        tokens.refresh_token ? encryptToken(tokens.refresh_token) : null,
+        tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+      ]
+    );
+    repId = rows[0].id;
+
+    if (rows[0].inserted) {
+      await seedStarterDataForRep(db, repId);
+    }
+
+    await db.query('COMMIT');
+  } catch (err) {
+    await db.query('ROLLBACK');
+    throw err;
+  } finally {
+    db.release();
+  }
 
   // OUR session: a JWT naming only the rep id, signed with SESSION_SECRET,
   // short-lived. The Google tokens stay server-side; the browser holds only
   // this cookie.
-  const session = jwt.sign({ rep_id: rows[0].id }, process.env.SESSION_SECRET, {
+  const session = jwt.sign({ rep_id: repId }, process.env.SESSION_SECRET, {
     expiresIn: `${SESSION_HOURS}h`,
   });
   res.cookie('session', session, {

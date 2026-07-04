@@ -308,3 +308,56 @@ Phase 1 note.)
 
 8. **Demo rep owns the seed; `npm run db:adopt` reassigns it** to the
    first real Google account so the post-login demo isn't an empty screen.
+
+---
+
+## Phase 7 addendum — per-rep onboarding seed data
+
+### Mistakes
+
+1. **Variable name collision that broke server boot: two `const client`
+   in one function.** The OAuth callback already declared
+   `const client = oauthClient()` (the Google client). My new transaction
+   block added `const client = await pool.connect()` in the same scope, so
+   Node refused to even start: *Identifier 'client' has already been
+   declared*. Caught immediately because the live-API verification step
+   booted the server and it crashed on load (a pure unit test of
+   seedStarterDataForRep would have sailed past this — the bug was in the
+   caller). Fixed by renaming the DB connection to `db`. Good reminder that
+   "run the actual thing" catches what isolated tests don't.
+
+### Judgment calls
+
+1. **New-vs-returning detected via `(xmax = 0)` in the upsert's RETURNING**,
+   rejecting a separate SELECT-then-branch (racy) and DO NOTHING + second
+   UPDATE (loses the single-statement token refresh). Verified the trick in
+   psql before relying on it: first upsert → true, second → false.
+
+2. **Rep creation + seeding wrapped in ONE transaction** so a new rep gets
+   account + data atomically or neither. `seedStarterDataForRep(client,
+   repId)` takes the caller's client and does no BEGIN/COMMIT itself, so it
+   composes into that transaction.
+
+3. **Fresh UUIDs per call, not the hardcoded seed.sql ids** — reusing the
+   fixed `cccccccc-…` ids would make the second onboarding rep collide on
+   PKs. Symbolic keys in the dataset resolve to fresh UUIDs at seed time.
+   Verified zero shared contact/order ids between two seeded reps.
+
+4. **contacts/activities/orders = per-rep; workplaces/products = global
+   get-or-create.** Products dedupe by unique SKU (ON CONFLICT DO NOTHING);
+   workplaces (no unique key) by a (name,kind,city) select-or-insert. So
+   onboarding many reps doesn't duplicate the shared catalog/dropdown, and
+   the function still bootstraps the catalog on a schema-only DB. Chose this
+   over per-rep workplace copies specifically to avoid a workplace dropdown
+   that grows with every rep.
+
+5. **db/seed.sql left untouched** — the demo rep keeps its own hardcoded-id
+   path; onboarding is a separate function for Google logins only, so the
+   existing setup flow is unaffected.
+
+6. **Live Google login still can't be exercised here** (no real creds, per
+   the security rules), so onboarding was verified by driving the exact
+   callback logic — real upsert SQL + xmax detection + seedStarterDataForRep
+   in a transaction — against the DB, plus an API read of a seeded rep. The
+   remaining untested surface is the same ~30 Google lines noted in the main
+   Phase 7 entry, not the seeding itself.
