@@ -86,6 +86,25 @@ app.use('/api/products', productsRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/agenda', agendaRouter);
 app.use('/api/digest', digestRouter);
+app.use('/api/digest', digestRouter);
+
+// Serve the built React frontend (production only) — the app and API share
+// one origin here, matching the same-origin design noted in vite.config.js.
+const path = require('path');
+const clientDistPath = path.join(__dirname, '../../client/dist');
+app.use(express.static(clientDistPath));
+
+// Any non-API GET request falls through to React's index.html, so
+// client-side routing (the hash router) works on refresh/direct links.
+app.get('*', (req, res) => {
+  res.sendFile(path.join(clientDistPath, 'index.html'));
+});
+
+// Anything that fell through every route above is an unknown path → 404 as
+// JSON (this is an API; HTML error pages would just confuse fetch callers).
+app.use((req, res) => {
+  res.status(404).json({ error: `no route: ${req.method} ${req.path}` });
+});
 
 // Anything that fell through every route above is an unknown path → 404 as
 // JSON (this is an API; HTML error pages would just confuse fetch callers).
@@ -106,15 +125,15 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 });
 // Serve the built React frontend (production only) — the app and API share
 // one origin here, matching the same-origin design noted in vite.config.js.
-const path = require('path');
-const clientDistPath = path.join(__dirname, '../../client/dist');
-app.use(express.static(clientDistPath));
+// const path = require('path');
+// const clientDistPath = path.join(__dirname, '../../client/dist');
+// app.use(express.static(clientDistPath));
 
-// Any route that isn't /api or /auth falls through to React's index.html,
-// so client-side routing (the hash router) works on refresh/direct links.
-app.get('*', (req, res) => {
-  res.sendFile(path.join(clientDistPath, 'index.html'));
-});
+// // Any route that isn't /api or /auth falls through to React's index.html,
+// // so client-side routing (the hash router) works on refresh/direct links.
+// app.get('*', (req, res) => {
+//   res.sendFile(path.join(clientDistPath, 'index.html'));
+// });
 
 const port = process.env.PORT || 3001;
 app.listen(port, () => {
