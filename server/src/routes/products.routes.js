@@ -19,6 +19,9 @@ const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 
 router.get('/', asyncHandler(async (req, res) => {
+  // No rep_id filter — products is global reference data, not rep-owned
+  // (unlike contacts/orders/activities). Still sits behind requireRep, so a
+  // session is required, but every rep sees the same catalog.
   const { rows } = await pool.query(
     `SELECT id, name, sku, form, unit_price
        FROM products

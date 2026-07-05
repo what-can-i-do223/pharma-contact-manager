@@ -39,6 +39,7 @@ const { pool } = require('./db');
 const { buildDailyDigest } = require('./digest');
 const { sendEmail, GoogleNotConnectedError } = require('./google');
 
+// the actual batch job: one digest per connected rep, failures isolated
 async function sendDigestToAllConnectedReps() {
   // has_refresh_token is the same "connected" predicate requireRep exposes
   // as google_connected — reps without it are skipped without ever being

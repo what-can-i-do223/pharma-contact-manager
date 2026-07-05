@@ -4,8 +4,14 @@ dist/
 *.log
 
 # Secrets: .env at any depth, plus variants like .env.local — but keep the
-# committed placeholder files (.env.example) tracked. Security rule from
-# CONTACT_MANAGER_PHASE6plus_SPEC.md: real credentials never enter git.
+# committed placeholder files (.env.example) tracked. Real credentials never
+# enter git.
 .env
 .env.*
 !.env.example
+
+# Internal build/scratch docs (build specs, per-phase write-ups, dev notes) —
+# useful while building, not meant for the public repo.
+NOTES.md
+*_EXPLAINED.md
+*_SPEC.md

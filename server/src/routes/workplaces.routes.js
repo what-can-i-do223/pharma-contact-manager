@@ -20,6 +20,7 @@ const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 
 router.get('/', asyncHandler(async (req, res) => {
+  // No rep_id filter — workplaces, like products, is global reference data.
   const { rows } = await pool.query(
     'SELECT id, name, kind, city FROM workplaces ORDER BY name'
   );
