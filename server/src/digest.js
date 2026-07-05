@@ -34,6 +34,19 @@ const esc = (s) =>
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
+// Greeting name, with a fallback chain: reps.name is populated from Google's
+// ID token at login (`name || email`, see auth.routes.js) so it's normally
+// present — but a blank/whitespace-only name should still degrade cleanly
+// rather than greet someone with an empty string. Falls back to the email's
+// local part (before '@'), then a neutral "there" if even that is missing
+// (email is NOT NULL in the schema, so this last resort shouldn't trigger
+// in practice — it's a defensive floor, not an expected path).
+function greetingName(rep) {
+  if (rep.name && rep.name.trim()) return rep.name.trim();
+  if (rep.email && rep.email.split('@')[0]) return rep.email.split('@')[0];
+  return 'there';
+}
+
 async function buildDailyDigest(rep) {
   // Overdue = due date already past (days_overdue > 0). Closed contacts are
   // excluded (you don't visit lost accounts) — same rule as the agenda.
@@ -139,7 +152,7 @@ function renderHtml(rep, byCity, pendingRows, counts) {
 
   return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;padding:8px;color:#1f2937;">
   <h1 style="font-size:20px;margin:0 0 4px;">Today's tasks</h1>
-  <p style="color:#6b7280;margin:0 0 20px;">Hi ${esc(rep.name)}, here's your day for ${today}.</p>
+  <p style="color:#6b7280;margin:0 0 20px;">Hi ${esc(greetingName(rep))}, here's your day for ${today}.</p>
 
   <h2 style="font-size:16px;border-bottom:2px solid #e5e7eb;padding-bottom:4px;">
     Overdue visits <span style="color:#6b7280;font-weight:400;">(${counts.overdue})</span>

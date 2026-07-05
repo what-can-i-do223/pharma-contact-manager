@@ -16,24 +16,31 @@ import { useState } from 'react';
 import { api, ApiError } from '../api.js';
 
 export default function DigestPanel() {
-  const [preview, setPreview] = useState(null); // { subject, html, counts } | null
-  const [showPreview, setShowPreview] = useState(false);
+  const [preview, setPreview] = useState(null); // { subject, html, counts } | null once fetched
+  const [previewOpen, setPreviewOpen] = useState(false); // visibility, independent of whether data is cached
   const [busy, setBusy] = useState(null); // 'preview' | 'send' | null
   const [sent, setSent] = useState(null); // { to } after a successful send
   const [notConnected, setNotConnected] = useState(false);
   const [error, setError] = useState(null);
 
-  async function loadPreview() {
-    setBusy('preview');
-    setError(null);
-    try {
-      const p = await api.getDigestPreview();
-      setPreview(p);
-      setShowPreview(true);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(null);
+  // One button drives both fetch-and-show (first click) and hide/show
+  // (subsequent clicks) — no need to re-fetch just to toggle visibility of
+  // data we already have.
+  async function togglePreview() {
+    if (preview === null) {
+      setBusy('preview');
+      setError(null);
+      try {
+        const p = await api.getDigestPreview();
+        setPreview(p);
+        setPreviewOpen(true);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setBusy(null);
+      }
+    } else {
+      setPreviewOpen((open) => !open);
     }
   }
 
@@ -63,8 +70,8 @@ export default function DigestPanel() {
           <span className="muted"> — your overdue visits &amp; pending orders, by email</span>
         </div>
         <div className="digest-actions">
-          <button className="secondary" disabled={busy !== null} onClick={loadPreview}>
-            {busy === 'preview' ? 'Loading…' : showPreview ? 'Refresh preview' : 'Preview'}
+          <button className="secondary" disabled={busy !== null} onClick={togglePreview}>
+            {busy === 'preview' ? 'Loading…' : preview === null ? 'Preview' : previewOpen ? 'Hide preview' : 'Show preview'}
           </button>
           <button disabled={busy !== null} onClick={send}>
             {busy === 'send' ? 'Sending…' : '📧 Send me today’s tasks'}
@@ -83,7 +90,7 @@ export default function DigestPanel() {
       )}
       {error && <p className="error-banner">{error}</p>}
 
-      {showPreview && preview && (
+      {previewOpen && preview && (
         <div className="digest-preview">
           <div className="muted digest-subject">Subject: {preview.subject}</div>
           {/* Isolated render of the actual email HTML. sandbox with no

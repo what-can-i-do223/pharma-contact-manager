@@ -109,3 +109,8 @@ const port = process.env.PORT || 3001;
 app.listen(port, () => {
   console.log(`API listening on http://localhost:${port}`);
 });
+
+// Starts the 7am digest cron IF configured (DIGEST_CRON set, DISABLE_SCHEDULER
+// not set) — see scheduler.js's header comment for why this only behaves
+// like a real daily job on an always-on host, not local dev.
+require('./scheduler').startDigestScheduler();

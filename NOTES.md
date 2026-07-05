@@ -462,3 +462,51 @@ No code mistakes this phase. One near-miss caught in design, worth recording:
    boundary as Phases 7–8. Message encoding (unit), digest content (API),
    the 409, the abuse guard, and the preview UI are all tested; only the ~5
    lines handing `raw` to googleapis are exercised by a real login.
+
+---
+
+## Digest follow-up — greeting fix, hide/show toggle, 7am scheduler
+
+### Mistakes
+
+None this round. The one thing worth recording isn't a mistake but a
+finding: investigating the reported "Hi Lost" bug showed the greeting code
+was already correct (`rep.name` straight from the `reps` table) — "Lost" is
+the literal, real display name Google returned for a genuine "Sign in with
+Google" the human performed with real credentials during testing (a real
+`google_sub`, a real encrypted refresh token in the DB, created 2026-07-05
+13:48). Not a code defect; recorded here so it isn't rediscovered and
+"fixed" again later by someone assuming the greeting logic is broken. The
+requested defensive fallback (blank/missing name → email local-part →
+"there") was added regardless, since it's correct behavior the code
+genuinely lacked.
+
+### Judgment calls
+
+1. **Did not run `npm run db:reset` at the end of this task.** A real rep
+   row now exists in the dev database (the login above) with a real
+   encrypted refresh token that required actual OAuth consent to obtain —
+   reseeding would delete it, and re-creating it isn't a `psql` command,
+   it's a real login. This round of work only ran read/GET operations
+   against the database, so there was nothing to clean up; skipping the
+   reseed was the safer call. Flagged explicitly to the human rather than
+   silently deviating from the usual per-phase "reseed to pristine" habit.
+
+2. **Scheduler is opt-in via `DIGEST_CRON` being unset by default**, not
+   "on with a 7am default unless disabled." A baked-in always-on default
+   would risk a real email firing the first time a dev happens to leave
+   `npm run dev:server` running through 7am. `DISABLE_SCHEDULER=true` is a
+   secondary override for when `DIGEST_CRON` IS set but a given instance
+   shouldn't send (e.g. multiple server instances).
+
+3. **The scheduled job reuses buildDailyDigest + sendEmail verbatim** — no
+   parallel "batch" digest logic — so the scheduled path and the button
+   path can never disagree about what a digest contains.
+
+4. **One rep's failure doesn't stop the batch**, verified with a stubbed
+   run (success / simulated revoked-token / simulated Gmail error → exactly
+   1 sent, 1 failed, 1 skipped, all three attempted).
+
+5. **DigestPanel's hide/show is a pure visibility toggle once data is
+   cached** — no explicit "refresh" action was added (kept minimal per the
+   ask); a rep wanting truly fresh counts reloads the Agenda page.
