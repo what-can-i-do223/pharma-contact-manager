@@ -104,6 +104,17 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   console.error(err);
   res.status(500).json({ error: 'internal server error' });
 });
+// Serve the built React frontend (production only) — the app and API share
+// one origin here, matching the same-origin design noted in vite.config.js.
+const path = require('path');
+const clientDistPath = path.join(__dirname, '../../client/dist');
+app.use(express.static(clientDistPath));
+
+// Any route that isn't /api or /auth falls through to React's index.html,
+// so client-side routing (the hash router) works on refresh/direct links.
+app.get('*', (req, res) => {
+  res.sendFile(path.join(clientDistPath, 'index.html'));
+});
 
 const port = process.env.PORT || 3001;
 app.listen(port, () => {
