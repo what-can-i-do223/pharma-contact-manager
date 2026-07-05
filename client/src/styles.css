@@ -247,6 +247,28 @@ th { color: var(--muted); font-weight: 600; font-size: 0.8rem; }
 .cal-chip.reconnect a { color: var(--accent); }
 .error-inline { color: var(--red); font-size: 0.8rem; }
 
+/* ---- daily digest panel (Phase 9) --------------------------------------- */
+
+.digest-panel { margin-bottom: 1.5rem; }
+.digest-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.digest-actions { display: flex; gap: 0.5rem; }
+.digest-sent { color: #15803d; font-weight: 600; margin: 0.75rem 0 0; }
+.digest-preview { margin-top: 1rem; }
+.digest-subject { font-size: 0.85rem; margin-bottom: 0.4rem; }
+.digest-iframe {
+  width: 100%;
+  height: 460px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
 /* ---- new-contact form ---------------------------------------------------- */
 
 .type-picker { display: flex; gap: 0.5rem; margin: 1rem 0; }

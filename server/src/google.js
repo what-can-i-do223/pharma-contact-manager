@@ -180,6 +180,47 @@ async function createCalendarEvent(repId, eventBody) {
   return res.data.id;
 }
 
+// ----------------------------------------------------------------------------
+// Phase 9 — Gmail
+// ----------------------------------------------------------------------------
+
+// Encodes an HTML email as the base64url-wrapped RFC-2822 message the Gmail
+// API's messages.send wants. Pure and side-effect-free so the encoding —
+// including UTF-8 body bytes (the ₹ symbol) surviving the round trip — is
+// unit-testable without touching Gmail. CRLF line endings and a blank line
+// separating headers from body are both RFC-2822 requirements.
+//
+// `subject` MUST be ASCII (a raw header can't carry non-ASCII without RFC-2047
+// encoding); the caller keeps it ASCII. The BODY is UTF-8, declared by the
+// Content-Type charset and preserved because we encode the whole message as
+// UTF-8 bytes.
+function buildRawMessage({ to, subject, html }) {
+  const message = [
+    `To: ${to}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=utf-8',
+    `Subject: ${subject}`,
+    '',
+    html,
+  ].join('\r\n');
+  return Buffer.from(message, 'utf8').toString('base64url');
+}
+
+// Sends an HTML email FROM and TO the rep's own Google account (the caller
+// always passes the rep's own address — see digest.routes.js). Uses the
+// rep's token via getGoogleClientForRep, which throws GoogleNotConnectedError
+// when Google isn't connected / was revoked → the caller shows a reconnect
+// prompt. Returns the sent message's Gmail id.
+async function sendEmail(repId, { to, subject, html }) {
+  const auth = await getGoogleClientForRep(repId);
+  const gmail = google.gmail({ version: 'v1', auth });
+  const res = await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw: buildRawMessage({ to, subject, html }) },
+  });
+  return res.data.id;
+}
+
 module.exports = {
   SCOPES,
   oauthClient,
@@ -189,4 +230,6 @@ module.exports = {
   GoogleNotConnectedError,
   buildVisitEvent,
   createCalendarEvent,
+  buildRawMessage,
+  sendEmail,
 };

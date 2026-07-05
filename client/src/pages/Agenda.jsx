@@ -11,6 +11,7 @@ import { api } from '../api.js';
 import { fmtDate, fmtINR } from '../format.js';
 import { TypeBadge, OverdueFlag } from '../components/Badges.jsx';
 import AddToCalendarButton from '../components/AddToCalendarButton.jsx';
+import DigestPanel from '../components/DigestPanel.jsx';
 
 export default function Agenda() {
   const [agenda, setAgenda] = useState(null);
@@ -31,6 +32,8 @@ export default function Agenda() {
   return (
     <section>
       <h1>Agenda</h1>
+
+      <DigestPanel />
 
       <h2>Visits due <span className="muted">— overdue &amp; next 7 days</span></h2>
       {due_visits.length === 0 ? (

@@ -93,6 +93,12 @@ export const api = {
   addToCalendar: (contactId) =>
     request(`/api/contacts/${contactId}/calendar`, { method: 'POST' }),
 
+  // Phase 9: the daily digest. preview builds the email without sending (no
+  // Google needed — demoable in-app); send emails it to the rep's own inbox
+  // (same 409 google_not_connected shape as calendar when not connected).
+  getDigestPreview: () => request('/api/digest/preview'),
+  sendDigest: () => request('/api/digest/send', { method: 'POST' }),
+
   // ---- Phase 6: orders & products -----------------------------------------
 
   listProducts: () => request('/api/products'),

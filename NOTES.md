@@ -415,3 +415,50 @@ read as a real bug:
    Google creds, same boundary as Phase 7's token exchange). Everything
    around it is tested: event-payload unit test, idempotent short-circuit,
    not-connected 409, agenda, and the UI reconnect flow.
+
+---
+
+## Phase 9 — Gmail daily digest
+
+### Mistakes
+
+No code mistakes this phase. One near-miss caught in design, worth recording:
+
+1. **Almost put the ₹ symbol (and an em dash) in the email SUBJECT.** The
+   first draft subject read like the UI ("… — ₹X pending"). That would have
+   produced a malformed raw email header — non-ASCII in a header needs
+   RFC-2047 encoding, which `buildRawMessage` doesn't do. Caught while
+   writing `buildRawMessage` (thinking through the header/body charset
+   split), before any test ran: kept the subject pure ASCII (verified max
+   char code 121) and confined ₹ to the UTF-8 body. Logged because it's a
+   real correctness trap the code now guards against by convention.
+
+### Judgment calls
+
+1. **Reps email only themselves** — recipient is always `req.rep.email` from
+   the session, never from the request body. The spec's abuse guard for
+   holding `gmail.send`. Verified a body `to` is ignored.
+
+2. **Build and send split** — `buildDailyDigest` only queries + renders (no
+   Gmail), so `GET /api/digest/preview` is fully demoable without Google and
+   `POST /send` reuses the same builder. The Google-dependent half is
+   isolated to the actual send.
+
+3. **Overdue grouped by city** (route planning) using the shared
+   visitPlanner.js SQL — no re-derivation of the tier rule.
+
+4. **Inline-styled HTML, ASCII subject, no template engine** — email clients
+   strip `<style>`; a couple of string builders beat an MJML/templating dep.
+
+5. **Preview via sandboxed `<iframe srcDoc>`** rather than
+   `dangerouslySetInnerHTML` — isolates the email's CSS from the app (honest
+   preview) and can't run scripts/navigate.
+
+6. **Button-triggered, not scheduled** — per spec. `buildDailyDigest(rep)`
+   is a pure-ish function of a rep, so a real deployment wires it to a cron/
+   queue; noted as the only missing piece for production.
+
+7. **The live gmail.send round trip is untested here** — same no-real-creds
+   boundary as Phases 7–8. Message encoding (unit), digest content (API),
+   the 409, the abuse guard, and the preview UI are all tested; only the ~5
+   lines handing `raw` to googleapis are exercised by a real login.
